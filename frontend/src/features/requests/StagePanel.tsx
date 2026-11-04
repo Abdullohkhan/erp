@@ -23,6 +23,7 @@ interface Props { req: CrmRequest; act: Act; busy: boolean }
 const scroll = { overflowX: 'auto' } as const
 const numField = (v: number | null | undefined) => (v === null || v === undefined ? '' : String(v))
 const toNum = (s: string) => (s === '' ? undefined : Number(s))
+const sameName = (a: string, b: string) => a.trim().replace(/\s+/g, ' ').toLowerCase() === b.trim().replace(/\s+/g, ' ').toLowerCase()
 
 function CommentField({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   const { t } = useTranslation()
@@ -117,6 +118,11 @@ function PricingStage({ req, act, busy }: Props) {
 
   useEffect(() => { dispatch(fetchProducts()) }, [dispatch])
   const set = (id: string, patch: Partial<RequestItem>) => setRows((r) => r.map((x) => (x.id === id ? { ...x, ...patch } : x)))
+  /** Links a product to a line and to every other unlinked line typed with the same name (duplicates). */
+  const link = (row: RequestItem, p: { id: string; name: string; tnvedCode?: string | null } | null) => setRows((rs) => rs.map((x) => {
+    const twin = x.id === row.id || (!!p && !x.productId && sameName(x.name, row.name))
+    return twin ? { ...x, productId: p?.id ?? null, name: p?.name ?? x.name, tnvedCode: x.tnvedCode || p?.tnvedCode || null } : x
+  }))
   const payload = () => ({ items: rows.map((r) => ({
     id: r.id, productId: r.productId, tnvedCode: r.tnvedCode || null,
     ...Object.fromEntries(PRICE_FIELDS.map((f) => [f.key, r[f.key] ?? undefined])),
@@ -128,7 +134,7 @@ function PricingStage({ req, act, busy }: Props) {
     try {
       const { data } = await api.post('/products', { ...np, price: 0, costPrice: 0 })
       await dispatch(fetchProducts())
-      set(newFor.id, { productId: data.id, name: data.name })
+      link(newFor, data)
       setNewFor(null)
     } catch (e) {
       dispatch(notify({ message: e instanceof Error ? e.message : String(e), severity: 'error' }))
@@ -157,7 +163,7 @@ function PricingStage({ req, act, busy }: Props) {
                 <TableCell>
                   <Autocomplete size="small" options={products} value={products.find((p) => p.id === r.productId) ?? null}
                     getOptionLabel={(o) => `${o.code} · ${o.name}`}
-                    onChange={(_, v) => set(r.id, { productId: v?.id ?? null, name: v?.name ?? r.name, tnvedCode: r.tnvedCode || v?.tnvedCode || null })}
+                    onChange={(_, v) => link(r, v)}
                     renderInput={(p) => <TextField {...p} placeholder={r.name} error={!r.productId} helperText={!r.productId ? r.name : undefined} />} />
                   {!r.productId && canCreateProduct && (
                     <Button size="small" onClick={() => { setNp({ code: '', name: r.name, category: 'electronics', unit: r.unit }); setNewFor(r) }}>
@@ -405,32 +411,30 @@ function AssemblyStage({ req, act, busy }: Props) {
   const allIssued = req.items.every((i) => i.issuedQty >= i.qty)
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-      <Typography variant="body2" color="text.secondary">{t("Ombordan qismlarni oling, yig'ing. Ortiqchasini omborga qaytaring.")}</Typography>
       <Box sx={scroll}>
-        <Table size="small" sx={{ minWidth: 520 }}>
-          <TableHead><TableRow>
-            <TableCell>{t('Mahsulot')}</TableCell><TableCell align="right">{t('Kerak')}</TableCell><TableCell align="right">{t('Olingan')}</TableCell><TableCell align="right">{t('Amallar')}</TableCell>
-          </TableRow></TableHead>
+        <Table size="small" sx={{ minWidth: 420 }}>
           <TableBody>
-            {req.items.map((i) => (
-              <TableRow key={i.id}>
-                <TableCell>{i.name}</TableCell>
-                <TableCell align="right">{formatNumber(i.qty)} {i.unit}</TableCell>
-                <TableCell align="right">
-                  <Chip size="small" color={i.issuedQty >= i.qty ? 'success' : 'default'} label={formatNumber(i.issuedQty)} />
-                </TableCell>
-                <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>
-                  <Tooltip title={t('Ombordan olish')}><span>
-                    <IconButton size="small" color="primary" aria-label={t('Ombordan olish')} disabled={busy || i.issuedQty >= i.qty}
-                      onClick={() => act('issue', { itemId: i.id, qty: i.qty - i.issuedQty }, 'Ombordan olindi')}><Inventory2 fontSize="small" /></IconButton>
-                  </span></Tooltip>
-                  <Tooltip title={t('Omborga qaytarish (1 dona)')}><span>
-                    <IconButton size="small" aria-label={t('Omborga qaytarish (1 dona)')} disabled={busy || i.issuedQty <= 0}
-                      onClick={() => act('return', { itemId: i.id, qty: Math.min(1, i.issuedQty) }, 'Omborga qaytarildi')}><Undo fontSize="small" /></IconButton>
-                  </span></Tooltip>
-                </TableCell>
-              </TableRow>
-            ))}
+            {req.items.map((i) => {
+              const done = i.issuedQty >= i.qty
+              return (
+                <TableRow key={i.id}>
+                  <TableCell>{i.name}</TableCell>
+                  <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>
+                    <Chip size="small" color={done ? 'success' : 'default'} label={`${formatNumber(i.issuedQty)} / ${formatNumber(i.qty)} ${i.unit}`} />
+                  </TableCell>
+                  <TableCell align="right" sx={{ whiteSpace: 'nowrap', width: 1 }}>
+                    <Tooltip title={t('Ombordan olish')}><span>
+                      <IconButton size="small" color="primary" aria-label={t('Ombordan olish')} disabled={busy || done}
+                        onClick={() => act('issue', { itemId: i.id, qty: i.qty - i.issuedQty }, 'Ombordan olindi')}><Inventory2 fontSize="small" /></IconButton>
+                    </span></Tooltip>
+                    <Tooltip title={t('Qaytarish')}><span>
+                      <IconButton size="small" aria-label={t('Qaytarish')} disabled={busy || i.issuedQty <= 0}
+                        onClick={() => act('return', { itemId: i.id, qty: Math.min(1, i.issuedQty) }, 'Omborga qaytarildi')}><Undo fontSize="small" /></IconButton>
+                    </span></Tooltip>
+                  </TableCell>
+                </TableRow>
+              )
+            })}
           </TableBody>
         </Table>
       </Box>
@@ -443,14 +447,17 @@ function AssemblyStage({ req, act, busy }: Props) {
 
 // ───────────── Simple one-button stages ─────────────
 
-function OneButton({ act, busy, action, label, ok, icon, hint }: Props & { action: string; label: string; ok: string; icon: React.ReactNode; hint?: string }) {
+function OneButton({ act, busy, action, label, ok, icon, hint, commentLabel }: Props & { action: string; label: string; ok: string; icon: React.ReactNode; hint?: string; commentLabel?: string }) {
   const { t } = useTranslation()
   const [comment, setComment] = useState('')
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
       {hint && <Typography variant="body2" color="text.secondary">{t(hint)}</Typography>}
-      <CommentField value={comment} onChange={setComment} />
-      <Box><Button variant="contained" startIcon={icon} disabled={busy} onClick={() => act(action, { comment: comment || null }, ok)}>{t(label)}</Button></Box>
+      {commentLabel
+        ? <TextField size="small" fullWidth required label={t(commentLabel)} value={comment} onChange={(e) => setComment(e.target.value)} />
+        : <CommentField value={comment} onChange={setComment} />}
+      <Box><Button variant="contained" startIcon={icon} disabled={busy || (!!commentLabel && !comment.trim())}
+        onClick={() => act(action, { comment: comment.trim() || null }, ok)}>{t(label)}</Button></Box>
     </Box>
   )
 }
@@ -469,7 +476,7 @@ export default function StagePanel(props: Props) {
   if (!info.perm) return null
   const body = (() => {
     switch (props.req.status) {
-      case 'NEW': return <OneButton {...props} action="take" label="Ishga olish" ok="Ishga olindi" icon={<CheckCircle />} hint="Zayavkani ko'rib chiqing va konfiguratsiyani boshlang." />
+      case 'NEW': return <OneButton {...props} action="take" label="Ishga olish" ok="Ishga olindi" icon={<CheckCircle />} />
       case 'CONFIGURATION': return <ConfigurationStage {...props} />
       case 'PRICING': return <PricingStage {...props} />
       case 'REVIEW': return <ReviewStage {...props} />
@@ -481,7 +488,7 @@ export default function StagePanel(props: Props) {
       case 'RECEIVING': return <OneButton {...props} action="receive" label="Omborga qabul qilish" ok="Omborga qabul qilindi" icon={<Inventory2 />} hint="Tovar kelganda omborga kirim qiling: qoldiq, yetkazuvchi qarzi va faktura avtomatik yoziladi." />
       case 'ASSEMBLY': return <AssemblyStage {...props} />
       case 'ACT': return <OneButton {...props} action="act" label="Dalolatnoma yaratish" ok="Dalolatnoma yaratildi" icon={<Description />} />
-      case 'DELIVERY': return <OneButton {...props} action="deliver" label="Yetkazib berildi" ok="Zayavka yakunlandi" icon={<LocalShipping />} />
+      case 'DELIVERY': return <OneButton {...props} action="deliver" label="Yetkazib berildi" ok="Zayavka yakunlandi" icon={<LocalShipping />} commentLabel="Kim qabul qildi (F.I.Sh., manzil)" />
       default: return null
     }
   })()

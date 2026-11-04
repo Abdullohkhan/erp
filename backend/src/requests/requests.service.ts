@@ -3,7 +3,7 @@ import { PrismaService, type Tx } from '../common/prisma.service.js'
 import { BusinessError } from '../common/errors.js'
 import { nextNumber } from '../common/numbering.js'
 import { num } from '../common/serialize.js'
-import { has } from '../auth/decorators.js'
+import { canSeePrices, has } from '../auth/decorators.js'
 import type { AuthUser } from '../auth/auth.types.js'
 import type { Permission } from '../auth/permissions.js'
 import { Prisma } from '../generated/prisma/client.js'
@@ -27,6 +27,9 @@ const full = {
 type FullRequest = Prisma.RequestGetPayload<{ include: typeof full }>
 type Item = FullRequest['items'][number]
 
+/** Comparable product name: trimmed, lower-case, single spaces. */
+const normName = (s: string) => s.trim().replace(/\s+/g, ' ').toLowerCase()
+
 const COST_FIELDS = [
   'purchasePrice', 'customsDutyPct', 'vatPct', 'excisePct', 'customsFee', 'certificateCost', 'labCost', 'serviceFee',
   'logisticsCost', 'unitCost', 'actualPrice', 'actualLogistics', 'otherCosts', 'supplierId',
@@ -46,10 +49,10 @@ export const totals = (r: { items: Item[]; advancePct: Prisma.Decimal; paid: Pri
   const totalCost = r.items.reduce((s, i) => s + num(i.unitCost) * num(i.qty), 0)
   const totalPrice = r.items.reduce((s, i) => s + num(i.salePrice) * num(i.qty), 0)
   return {
-    totalCost: Math.round(totalCost * 100) / 100,
-    totalPrice: Math.round(totalPrice * 100) / 100,
+    totalCost: Math.round(totalCost),
+    totalPrice: Math.round(totalPrice),
     advanceAmount: advanceAmount(totalPrice, num(r.advancePct)),
-    balance: Math.round((totalPrice - num(r.paid)) * 100) / 100,
+    balance: Math.round(totalPrice - num(r.paid)),
   }
 }
 
@@ -65,7 +68,7 @@ export class RequestsService {
   // ───────────── Reading ─────────────
 
   canSeePrices(u: AuthUser) {
-    return (['costs.view', 'requests.review', 'requests.sell', 'requests.contract', 'requests.advance', 'payments.view'] as Permission[]).some((p) => has(u, p))
+    return canSeePrices(u)
   }
 
   /** Removes money the user may not see: the engineer never sees prices, only finance roles see costs. */
@@ -126,13 +129,21 @@ export class RequestsService {
     return r
   }
 
-  private async move(tx: Tx, u: AuthUser, r: { id: string; number: string; status: RequestStatus; createdById: string }, to: RequestStatus, action: string, comment?: string | null) {
+  /**
+   * Changes the status and notifies the next stage's role plus the request's creator.
+   * `notify.alsoPerms` adds more roles (each user is notified once), `notify.title` overrides the status label.
+   */
+  private async move(
+    tx: Tx, u: AuthUser, r: { id: string; number: string; status: RequestStatus; createdById: string }, to: RequestStatus, action: string,
+    comment?: string | null, extra: { title?: string; alsoPerms?: Permission[] } = {},
+  ) {
     await tx.request.update({ where: { id: r.id }, data: { status: to } })
     await tx.requestEvent.create({ data: { requestId: r.id, fromStatus: r.status, toStatus: to, action, comment: comment ?? undefined, userId: u.id, userName: u.fullName } })
     const owner = STATUS_OWNER[to]
     const link = `/requests/${r.id}`
-    const title = `${r.number}: ${owner.label}`
-    if (owner.perm) await this.notify.toPermission(tx, owner.perm, title, comment ?? null, link, u.id)
+    const title = `${r.number}: ${extra.title ?? owner.label}`
+    const perms = [...(owner.perm ? [owner.perm] : []), ...(extra.alsoPerms ?? [])]
+    if (perms.length) await this.notify.toPermission(tx, perms, title, comment ?? null, link, [u.id, r.createdById])
     if (r.createdById !== u.id) await this.notify.toUser(tx, r.createdById, title, comment ?? null, link)
   }
 
@@ -176,13 +187,13 @@ export class RequestsService {
     return this.done(u, id)
   }
 
-  /** Engineer takes a new request ("Ishga olamiz"). */
-  async take(u: AuthUser, id: string) {
+  /** Engineer takes a new request ("Ishga olamiz"): seller and director see "Injener ishlamoqda". */
+  async take(u: AuthUser, id: string, comment?: string | null) {
     this.require(u, 'requests.configure')
     await this.run(async (tx) => {
       const r = await this.load(tx, id, ['NEW'])
       await tx.request.update({ where: { id }, data: { assigneeId: u.id } })
-      await this.move(tx, u, r, 'CONFIGURATION', 'take')
+      await this.move(tx, u, r, 'CONFIGURATION', 'take', `${u.fullName} ishga oldi${comment ? `: ${comment}` : ''}`, { title: 'Injener ishlamoqda', alsoPerms: ['requests.review'] })
     })
     return this.done(u, id)
   }
@@ -193,9 +204,20 @@ export class RequestsService {
     await this.run(async (tx) => {
       await this.load(tx, id, ['CONFIGURATION'])
       const products = await tx.product.findMany({ where: { id: { in: b.items.map((i) => i.productId).filter((x): x is string => !!x) } } })
+      // A typed name that exactly matches a catalog product (name or code) is linked to it, so a duplicate line
+      // of the same product is taken from stock like the selected one instead of staying "not in catalog".
+      const typed = [...new Set(b.items.filter((i) => !i.productId && i.name?.trim()).map((i) => normName(i.name!)))]
+      const byName = new Map<string, (typeof products)[number]>()
+      if (typed.length) {
+        const candidates = await tx.product.findMany({ where: { isActive: true, OR: typed.flatMap((n) => [{ name: { equals: n, mode: 'insensitive' as const } }, { code: { equals: n, mode: 'insensitive' as const } }]) } })
+        for (const n of typed) {
+          const hits = candidates.filter((p) => normName(p.name) === n || normName(p.code) === n)
+          if (hits.length === 1) byName.set(n, hits[0])
+        }
+      }
       await tx.requestItem.deleteMany({ where: { requestId: id } })
       await tx.requestItem.createMany({ data: b.items.map((i, idx) => {
-        const p = products.find((x) => x.id === i.productId)
+        const p = products.find((x) => x.id === i.productId) ?? (i.name?.trim() ? byName.get(normName(i.name)) : undefined)
         if (!p && !i.name?.trim()) throw new BusinessError(`${idx + 1}-qator: mahsulot yoki nom kiriting`)
         return { requestId: id, productId: p?.id ?? null, name: p?.name ?? i.name!.trim(), unit: p?.unit ?? 'dona', qty: i.qty, note: i.note ?? undefined, sortOrder: idx }
       }) })
@@ -259,6 +281,14 @@ export class RequestsService {
           ...fields, unitCost: cost ?? undefined,
           ...(product ? { productId: product.id, name: product.name, unit: product.unit } : {}),
         } })
+        // Other still-unlinked lines with the same typed name are the same product: link them too.
+        if (product && !item.productId) {
+          const twins = r.items.filter((x) => x.id !== item.id && !x.productId && normName(x.name) === normName(item.name) && !b.items.some((q) => q.id === x.id && q.productId))
+          for (const x of twins) {
+            await tx.requestItem.update({ where: { id: x.id }, data: { productId: product.id, name: product.name, unit: product.unit } })
+            x.productId = product.id
+          }
+        }
       }
       await this.event(tx, u, id, 'pricing')
     })
@@ -313,6 +343,10 @@ export class RequestsService {
         : await tx.contractTemplate.findFirst({ where: { isDefault: true } })
       const advancePct = b.advancePct ?? num(r.advancePct)
       const deadlineDays = b.deadlineDays ?? s.deadlineDays
+      const unpriced = r.items.filter((i) => i.salePrice === null || num(i.salePrice) <= 0)
+      if (unpriced.length) throw new BusinessError(`Narxi yo'q qatorlar: ${unpriced.map((i) => i.name).join(', ')}`)
+      if (!r.customer.name.trim()) throw new BusinessError("Mijoz nomi bo'sh")
+      if (r.customer.type === 'legal' && !r.customer.inn?.trim()) throw new BusinessError("Yuridik shaxs mijozning INN raqami kiritilmagan (shartnoma uchun kerak)")
       const t = totals({ ...r, advancePct: new Prisma.Decimal(advancePct) })
       const number = r.contract?.number ?? (await nextNumber(tx, 'SHR'))
       const body = renderTemplate(template?.body ?? DEFAULT_CONTRACT_TEMPLATE, {
@@ -362,6 +396,9 @@ export class RequestsService {
     this.require(u, 'requests.procure')
     await this.run(async (tx) => {
       const r = await this.load(tx, id, ['PROCUREMENT'])
+      const supplierIds = [...new Set(b.items.map((p) => p.supplierId).filter((x): x is string => !!x))]
+      const found = await tx.supplier.count({ where: { id: { in: supplierIds }, isActive: true } })
+      if (found !== supplierIds.length) throw new BusinessError('Yetkazuvchi topilmadi yoki nofaol')
       for (const p of b.items) {
         const item = r.items.find((i) => i.id === p.id && i.source === 'purchase')
         if (!item) throw new BusinessError('Qator topilmadi')
@@ -378,7 +415,7 @@ export class RequestsService {
     await this.run(async (tx) => {
       const r = await this.load(tx, id, ['PROCUREMENT'])
       for (const i of r.items.filter((x) => x.source === 'purchase')) {
-        if (!i.supplierId || i.actualPrice === null) throw new BusinessError(`"${i.name}" uchun yetkazuvchi va narx kiritilmagan`)
+        if (!i.supplierId || i.actualPrice === null || num(i.actualPrice) <= 0) throw new BusinessError(`"${i.name}" uchun yetkazuvchi va narx kiritilmagan`)
       }
       await this.move(tx, u, r, 'PROCUREMENT_APPROVAL', 'submit-procurement', comment)
     })
@@ -405,7 +442,7 @@ export class RequestsService {
       for (const [supplierId, lines] of bySupplier) {
         const items: DocItem[] = lines.map((i) => {
           const price = actualUnitCost(i)
-          return { productId: i.productId!, productName: i.name, unit: i.unit, qty: num(i.qty), price, discount: 0, sum: Math.round(price * num(i.qty) * 100) / 100 }
+          return { productId: i.productId!, productName: i.name, unit: i.unit, qty: num(i.qty), price, discount: 0, sum: Math.round(price * num(i.qty)) }
         })
         const po = await tx.purchaseOrder.create({ data: {
           number: await nextNumber(tx, 'XAR'), date: new Date(), supplierId, warehouseId: wh.id, warehouseName: wh.name,
@@ -426,7 +463,8 @@ export class RequestsService {
     await this.run(async (tx) => {
       const r = await this.load(tx, id, ['ASSEMBLY'])
       const item = r.items.find((i) => i.id === b.itemId)
-      if (!item?.productId) throw new BusinessError('Qator topilmadi')
+      if (!item) throw new BusinessError('Qator topilmadi')
+      if (!item.productId) throw new BusinessError(`"${item.name}" katalogdagi mahsulotga bog'lanmagan`)
       const issued = num(item.issuedQty)
       if (sign < 0 && issued + b.qty > num(item.qty) + 1e-9) throw new BusinessError(`Kerakli miqdordan ko'p: ${item.name}`)
       if (sign > 0 && b.qty > issued + 1e-9) throw new BusinessError(`Berilgandan ko'p qaytarib bo'lmaydi: ${item.name}`)

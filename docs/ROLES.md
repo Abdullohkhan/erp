@@ -26,9 +26,9 @@ Qoidalar:
 
 | # | Holat | Kim bajaradi (ruxsat) | Amal | Keyingi holat |
 |---|---|---|---|---|
-| 1 | `NEW` | Injener (`requests.configure`) | Ishga olish | CONFIGURATION |
-| 2 | `CONFIGURATION` | Injener | Qismlar ro'yxati (katalogda yo'q → qizil) | PRICING (sotib olinadigan bo'lsa) yoki REVIEW |
-| 3 | `PRICING` | Deklarant (`requests.price`) | TN VED, boj %, QQS %, aksiz %, bojxona yig'imi, sertifikat, laboratoriya, xizmat haqi, logistika → tannarx | REVIEW |
+| 1 | `NEW` | Injener (`requests.configure`) | Ishga olish (sotuvchi va direktorga "Injener ishlamoqda" bildirishnomasi) | CONFIGURATION |
+| 2 | `CONFIGURATION` | Injener | Qismlar ro'yxati (katalogda yo'q → qizil; nomi/kodi katalogdagi mahsulotga aynan teng bo'lsa avtomatik bog'lanadi) | PRICING (sotib olinadigan bo'lsa) yoki REVIEW |
+| 3 | `PRICING` | Deklarant (`requests.price`) | Katalogga bog'lash (bir xil nomli qatorlar birga bog'lanadi), TN VED, boj %, QQS %, aksiz %, bojxona yig'imi, sertifikat, laboratoriya, xizmat haqi, logistika → tannarx | REVIEW |
 | 4 | `REVIEW` | Direktor (`requests.review`) | Ustama % / qo'lda narx | CUSTOMER_APPROVAL |
 | 5 | `CUSTOMER_APPROVAL` | Sotuvchi (`requests.sell`) | Tasdiq / rad (→ REVIEW) | CONTRACT |
 | 6 | `CONTRACT` | Sotuvchi (`requests.contract`) | Shablondan shartnoma, imzolash (mijoz qarzi yoziladi) | ADVANCE_PAYMENT |
@@ -38,8 +38,8 @@ Qoidalar:
 | 10 | `RECEIVING` | Omborchi (`requests.receive`) | Omborga kirim (xarid hujjati, yetkazuvchi qarzi, faktura) | ASSEMBLY |
 | 11 | `ASSEMBLY` | Injener (`requests.assemble`) | Ombordan olish / qaytarish, yig'ish tugadi | ACT |
 | 12 | `ACT` | Sotuvchi (`requests.act`) | Dalolatnoma | DELIVERY |
-| 13 | `DELIVERY` | Ta'minotchi (`requests.deliver`) | Yetkazildi | COMPLETED |
+| 13 | `DELIVERY` | Ta'minotchi (`requests.deliver`) | Yetkazildi (kim qabul qilgani majburiy) | COMPLETED |
 | – | istalgan | Direktor (`requests.cancel`) | Bekor qilish (olingan qismlar omborga qaytadi, qarz qaytariladi) | CANCELLED |
 
 Tannarx formulasi (dona): `narx + boj + aksiz + QQS + (bojxona yig'imi + sertifikat + laboratoriya + xizmat + logistika) / soni`, bunda boj = narx×boj%, aksiz = (narx+boj)×aksiz%, QQS = (narx+boj+aksiz)×QQS%.
-Sotuv narxi = tannarx × (1 + ustama%). Ombordan olinadigan qismlar tannarxi = ombordagi o'rtacha tannarx.
+Sotuv narxi = tannarx × (1 + ustama%). Barcha summalar butun so'mga yaxlitlanadi. Ombordan olinadigan qismlar tannarxi = ombordagi o'rtacha tannarx.

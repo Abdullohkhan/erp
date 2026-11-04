@@ -3,9 +3,15 @@ import { Print } from '@mui/icons-material'
 import { useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 
-const wrap = (title: string, body: string) => `<!doctype html><html><head><meta charset="utf-8"><title>${title}</title>
-<style>body{font-family:'Times New Roman',serif;font-size:14px;line-height:1.5;color:#000;background:#fff;margin:24px}
-table{font-size:13px}th{background:#f2f2f2}@media print{body{margin:0}}</style></head><body>${body}</body></html>`
+const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!))
+
+/** A4 print layout: the <title> becomes the PDF file name; table rows are not split across pages. */
+const wrap = (title: string, body: string) => `<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)}</title>
+<style>@page{size:A4;margin:15mm 12mm 15mm 20mm}
+body{font-family:'Times New Roman',serif;font-size:14px;line-height:1.5;color:#000;background:#fff;margin:24px}
+h2,h4{page-break-after:avoid}table{font-size:13px;border-collapse:collapse}th{background:#f2f2f2}
+thead{display:table-header-group}tr,img{page-break-inside:avoid}td:nth-child(n+3),th:nth-child(n+3){white-space:nowrap}
+@media print{body{margin:0}th{-webkit-print-color-adjust:exact;print-color-adjust:exact}}</style></head><body>${body}</body></html>`
 
 /** Shows a server-rendered HTML document (contract, act) in a sandboxed frame and prints it / saves as PDF. */
 export default function HtmlDocDialog({ open, title, html, onClose }: { open: boolean; title: string; html: string; onClose: () => void }) {

@@ -1,7 +1,18 @@
 const esc = (s: unknown) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!))
 
-export const fmtMoney = (n: number) => new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 }).format(n) + " so'm"
+export const fmtMoney = (n: number) => new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 0 }).format(Math.round(n)) + " so'm"
 export const fmtDate = (d: Date) => d.toLocaleDateString('ru-RU')
+
+/** Placeholders a contract template may use (anything else is rejected when the template is saved). */
+export const CONTRACT_PLACEHOLDERS = ['number', 'date', 'total', 'advancePct', 'advanceAmount', 'deadlineDays', 'itemsTable',
+  'customer.name', 'customer.inn', 'customer.address', 'customer.phone',
+  'company.name', 'company.inn', 'company.address', 'company.phone', 'company.bank', 'company.director']
+
+/** Placeholders used in `body` that are not in `allowed` (typos would silently print nothing). */
+export function unknownPlaceholders(body: string, allowed: string[] = CONTRACT_PLACEHOLDERS): string[] {
+  const used = [...body.matchAll(/\{\{\s*([\w.]+)\s*\}\}/g)].map((m) => m[1])
+  return [...new Set(used.filter((k) => !allowed.includes(k)))]
+}
 
 export interface DocLine { name: string; qty: number; unit: string; price: number }
 

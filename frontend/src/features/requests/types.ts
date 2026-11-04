@@ -10,7 +10,7 @@ export const PIPELINE: RequestStatus[] = [
 /** Labels are Uzbek translation keys. `perm` = who acts at this stage. */
 export const STATUS_INFO: Record<RequestStatus, { label: string; short: string; perm: string | null; color: 'default' | 'primary' | 'secondary' | 'info' | 'warning' | 'success' | 'error' }> = {
   NEW: { label: 'Yangi', short: 'Yangi', perm: 'requests.configure', color: 'info' },
-  CONFIGURATION: { label: 'Konfiguratsiya (injener)', short: 'Konfiguratsiya', perm: 'requests.configure', color: 'primary' },
+  CONFIGURATION: { label: 'Injener ishlamoqda (konfiguratsiya)', short: 'Konfiguratsiya', perm: 'requests.configure', color: 'primary' },
   PRICING: { label: 'Narx shakllantirish (deklarant)', short: 'Narx', perm: 'requests.price', color: 'secondary' },
   REVIEW: { label: "Narxni ko'rib chiqish", short: "Ko'rib chiqish", perm: 'requests.review', color: 'secondary' },
   CUSTOMER_APPROVAL: { label: "Buyurtmachi tasdig'i", short: 'Buyurtmachi', perm: 'requests.sell', color: 'warning' },
@@ -121,5 +121,5 @@ export function unitCost(i: Pick<RequestItem, 'qty'> & Partial<RequestItem>): nu
   const excise = ((base + duty) * (i.excisePct ?? 0)) / 100
   const vat = ((base + duty + excise) * (i.vatPct ?? 0)) / 100
   const fixed = i.qty > 0 ? ((i.customsFee ?? 0) + (i.certificateCost ?? 0) + (i.labCost ?? 0) + (i.serviceFee ?? 0) + (i.logisticsCost ?? 0)) / i.qty : 0
-  return Math.round((base + duty + excise + vat + fixed) * 100) / 100
+  return Math.round(base + duty + excise + vat + fixed) // whole so'm, like the backend
 }

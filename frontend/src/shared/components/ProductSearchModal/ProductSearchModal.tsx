@@ -124,7 +124,7 @@ export default function ProductSearchModal({ open, onClose, onSelect }: Props) {
                       <Chip label={p.unit} variant="outlined" size="small" sx={{ borderRadius: 1, fontSize: '0.75rem' }} />
                     </TableCell>
                     <TableCell align="right" sx={{ fontWeight: 700, color: 'primary.main' }}>
-                      {formatCurrency(p.price)}
+                      {p.price === undefined ? '—' : formatCurrency(p.price)}
                     </TableCell>
                     {showCost && <TableCell align="right" sx={{ fontWeight: 700, color: 'success.main' }}>{formatCurrency(p.costPrice)}</TableCell>}
                   </motion.tr>

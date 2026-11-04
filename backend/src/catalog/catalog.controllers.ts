@@ -4,7 +4,7 @@ import { z, type ZodObject, type ZodRawShape } from 'zod'
 import { PrismaService } from '../common/prisma.service.js'
 import { AuditService } from '../common/audit.service.js'
 import { ZodPipe, money, optStr, str } from '../common/zod.js'
-import { CurrentUser, Perm, has } from '../auth/decorators.js'
+import { CurrentUser, Perm, canSeePrices, has } from '../auth/decorators.js'
 import type { Permission } from '../auth/permissions.js'
 import type { AuthUser } from '../auth/auth.types.js'
 
@@ -18,6 +18,8 @@ interface CatalogDef {
   schema: ZodObject<ZodRawShape>
   /** Fields hidden from users without `costs.view`. */
   costFields?: string[]
+  /** Fields hidden from users who may not see sale prices (the engineer). */
+  priceFields?: string[]
   orderBy?: Record<string, 'asc' | 'desc'>
 }
 
@@ -26,7 +28,7 @@ const email = z.string().trim().email("Email noto'g'ri").optional().nullable().o
 
 export const CATALOGS: CatalogDef[] = [
   {
-    path: 'products', model: 'product', view: 'products.view', manage: 'products.manage', costFields: ['costPrice'],
+    path: 'products', model: 'product', view: 'products.view', manage: 'products.manage', costFields: ['costPrice'], priceFields: ['price'],
     schema: z.object({
       code: str, name: str, unit: z.string().default('dona'), category: z.string().default('other'),
       price: money.default(0), costPrice: money.default(0), barcode: optStr, description: optStr, tnvedCode: optStr,
@@ -86,7 +88,9 @@ function makeController(def: CatalogDef): Type<unknown> {
     }
 
     private view(user: AuthUser, row: Record<string, unknown>) {
-      return has(user, 'costs.view') ? row : stripFields(row, def.costFields)
+      if (has(user, 'costs.view')) return row
+      const out = stripFields(row, def.costFields)
+      return canSeePrices(user) ? out : stripFields(out, def.priceFields)
     }
 
     @Get() @Perm(def.view, def.manage)

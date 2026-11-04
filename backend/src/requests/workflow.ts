@@ -4,7 +4,7 @@ import type { RequestStatus } from '../generated/prisma/enums.js'
 /** Who is responsible for a request in each status (their users get notified). */
 export const STATUS_OWNER: Record<RequestStatus, { perm: Permission | null; label: string }> = {
   NEW: { perm: 'requests.configure', label: 'Yangi' },
-  CONFIGURATION: { perm: 'requests.configure', label: 'Konfiguratsiya (injener)' },
+  CONFIGURATION: { perm: 'requests.configure', label: 'Injener ishlamoqda (konfiguratsiya)' },
   PRICING: { perm: 'requests.price', label: 'Narx shakllantirish (deklarant)' },
   REVIEW: { perm: 'requests.review', label: "Narxni ko'rib chiqish" },
   CUSTOMER_APPROVAL: { perm: 'requests.sell', label: 'Buyurtmachi tasdig\'i' },

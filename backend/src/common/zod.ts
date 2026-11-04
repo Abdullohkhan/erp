@@ -16,6 +16,7 @@ export class ZodPipe<T extends ZodType> implements PipeTransform {
 
 export const str = z.string().trim().min(1)
 export const optStr = z.string().trim().optional().nullable()
-export const money = z.coerce.number().min(0)
+/** Money in whole so'm (fractions are rounded). */
+export const money = z.coerce.number().min(0).transform((n) => Math.round(n))
 export const qty = z.coerce.number().positive()
 export const date = z.coerce.date()

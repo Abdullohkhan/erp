@@ -31,7 +31,7 @@ const ACTIONS = {
   'submit-pricing': Comment,
   review: z.object({ markupPct: pct, prices: z.array(z.object({ id: str, salePrice: money })).optional(), comment: optStr }),
   'customer-decision': z.object({ approved: z.boolean(), comment: optStr }),
-  contract: z.object({ templateId: optStr, deadlineDays: z.coerce.number().int().min(1).optional(), advancePct: z.coerce.number().min(0).max(100).optional() }),
+  contract: z.object({ templateId: optStr, deadlineDays: z.coerce.number().int().min(1).max(730).optional(), advancePct: z.coerce.number().min(0).max(100).optional() }),
   'sign-contract': Comment,
   'confirm-advance': Comment,
   procurement: z.object({ items: z.array(z.object({
@@ -44,7 +44,7 @@ const ACTIONS = {
   return: z.object({ itemId: str, qty }),
   'finish-assembly': Comment,
   act: Comment,
-  deliver: Comment,
+  deliver: z.object({ comment: z.string().trim().min(1, 'Kim qabul qilganini yozing') }),
   cancel: z.object({ comment: str }),
 } as const
 type ActionName = keyof typeof ACTIONS
@@ -86,7 +86,7 @@ export class RequestsController {
     const s = this.svc
     switch (action as ActionName) {
       case 'comment': return s.comment(u, id, b.comment)
-      case 'take': return s.take(u, id)
+      case 'take': return s.take(u, id, b.comment)
       case 'configuration': return s.saveConfiguration(u, id, b)
       case 'submit-configuration': return s.submitConfiguration(u, id, b.comment)
       case 'pricing': return s.savePricing(u, id, b)

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import {
-  Alert, Box, Button, Card, Chip, Dialog, DialogActions, DialogContent, DialogTitle, Grid, Step, StepLabel, Stepper,
+  Alert, Box, Button, Card, Chip, Dialog, DialogActions, DialogContent, DialogTitle, Grid, LinearProgress,
   Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography, Skeleton,
 } from '@mui/material'
 import { ArrowBack, Block, Description, Send, ErrorOutlined } from '@mui/icons-material'
@@ -59,6 +59,8 @@ export default function RequestDetailPage() {
   const activeStep = req.status === 'CANCELLED' ? -1 : PIPELINE.indexOf(req.status)
   const showPrices = req.totalPrice !== undefined
   const showCost = req.totalCost !== undefined
+  // "Olingan" only matters from assembly on.
+  const showIssued = PIPELINE.indexOf(req.status) >= PIPELINE.indexOf('ASSEMBLY') || req.items.some((i) => i.issuedQty > 0)
 
   return (
     <AnimatedPage>
@@ -98,11 +100,13 @@ export default function RequestDetailPage() {
       </Card>
 
       {req.status !== 'CANCELLED' && (
-        <Card sx={{ p: 2, mb: 2, borderRadius: 3, overflowX: 'auto' }}>
-          <Stepper activeStep={activeStep} alternativeLabel sx={{ minWidth: 1180, "& .MuiStepLabel-label": { fontSize: "0.72rem", px: 0.5 } }}>
-            {PIPELINE.map((s) => <Step key={s} completed={PIPELINE.indexOf(s) < activeStep || req.status === 'COMPLETED'}><StepLabel>{t(STATUS_INFO[s].short)}</StepLabel></Step>)}
-          </Stepper>
-        </Card>
+        <Box sx={{ mb: 2 }}>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+            <Typography variant="caption" color="text.secondary">{t(STATUS_INFO[req.status].short)}</Typography>
+            <Typography variant="caption" color="text.secondary">{activeStep + 1} / {PIPELINE.length}</Typography>
+          </Box>
+          <LinearProgress variant="determinate" value={((activeStep + 1) / PIPELINE.length) * 100} sx={{ height: 6, borderRadius: 3 }} />
+        </Box>
       )}
 
       {!final && <Box sx={{ mb: 2 }}><StagePanel key={req.status + req.updatedAt} req={req} act={act} busy={busy} /></Box>}
@@ -116,7 +120,7 @@ export default function RequestDetailPage() {
             <Table size="small" sx={{ minWidth: 560 }}>
               <TableHead><TableRow>
                 <TableCell>#</TableCell><TableCell>{t('Mahsulot')}</TableCell><TableCell align="right">{t('Soni')}</TableCell>
-                <TableCell>{t('Manba')}</TableCell><TableCell align="right">{t('Olingan')}</TableCell>
+                <TableCell>{t('Manba')}</TableCell>{showIssued && <TableCell align="right">{t('Olingan')}</TableCell>}
                 {showCost && <TableCell align="right">{t('Tannarx (dona)')}</TableCell>}
                 {showPrices && <TableCell align="right">{t('Narx (dona)')}</TableCell>}
               </TableRow></TableHead>
@@ -132,7 +136,7 @@ export default function RequestDetailPage() {
                     </TableCell>
                     <TableCell align="right">{formatNumber(i.qty)} {i.unit}</TableCell>
                     <TableCell><Chip size="small" variant="outlined" color={i.source === 'stock' ? 'success' : 'warning'} label={i.source === 'stock' ? t('Ombordan') : t('Xarid')} /></TableCell>
-                    <TableCell align="right">{formatNumber(i.issuedQty)}</TableCell>
+                    {showIssued && <TableCell align="right">{formatNumber(i.issuedQty)}</TableCell>}
                     {showCost && <TableCell align="right">{i.unitCost ? formatCurrency(i.unitCost) : '—'}</TableCell>}
                     {showPrices && <TableCell align="right">{i.salePrice ? formatCurrency(i.salePrice) : '—'}</TableCell>}
                   </TableRow>

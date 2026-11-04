@@ -13,7 +13,8 @@ export interface PricingInput {
   logisticsCost: number
 }
 
-const r2 = (n: number) => Math.round(n * 100) / 100
+/** Money is kept in whole so'm. */
+const r2 = (n: number) => Math.round(n)
 
 export function unitCost(p: PricingInput): number {
   const base = p.purchasePrice

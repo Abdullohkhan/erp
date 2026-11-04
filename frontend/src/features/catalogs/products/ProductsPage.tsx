@@ -49,6 +49,9 @@ export default function ProductsPage() {
   const { t } = useTranslation()
   const { items: products, loading } = useAppSelector((s) => s.products)
   const canWrite = useCan('products.manage')
+  const showCost = useCan('costs.view')
+  // The server omits prices for users who may not see them (engineer).
+  const showPrice = products.some((p) => p.price !== undefined)
 
   useEffect(() => { dispatch(fetchProducts()) }, [dispatch])
 
@@ -65,12 +68,12 @@ export default function ProductsPage() {
       format: (v) => <Chip label={t(CAT_LABELS[v as ProductCategory] ?? String(v))} size="small" sx={{ borderRadius: 1 }} />,
       exportValue: (r) => t(CAT_LABELS[r.category] ?? r.category) },
     { id: 'unit', label: "O'lchov", minWidth: 70 },
-    { id: 'price', label: 'Narxi', minWidth: 120, align: 'right', format: (v) => formatCurrency(v as number) },
-    { id: 'costPrice', label: 'Tannarxi', minWidth: 120, align: 'right', format: (v) => formatCurrency(v as number) },
+    ...(showPrice ? [{ id: 'price', label: 'Narxi', minWidth: 120, align: 'right' as const, format: (v: unknown) => formatCurrency(v as number) }] : []),
+    ...(showCost ? [{ id: 'costPrice', label: 'Tannarxi', minWidth: 120, align: 'right' as const, format: (v: unknown) => formatCurrency(v as number) }] : []),
     { id: 'isActive', label: 'Holat', minWidth: 80, align: 'center',
       format: (v) => v ? <CheckCircle color="success" fontSize="small" /> : <Cancel color="error" fontSize="small" />,
       exportValue: (r) => (r.isActive ? t('Faol') : t('Nofaol')) },
-  ], [t])
+  ], [t, showPrice, showCost])
 
   const defaults = useMemo(() => (cat.editing ?? EMPTY) as unknown as Record<string, unknown>, [cat.editing])
 

@@ -12,7 +12,7 @@ Xatolar: `{ statusCode, message }` (400 validatsiya/biznes qoida, 401, 403 ruxsa
 | GET/POST/PATCH/DELETE | `/users` | `users.view` / `users.manage` | |
 | GET | `/roles`, `/permissions` | `roles.view` | |
 | POST/PATCH/DELETE | `/roles` | `roles.manage` (Owner) | |
-| CRUD | `/products`, `/customers`, `/suppliers`, `/employees`, `/warehouses` | `*.view` / `*.manage` | `costPrice` faqat `costs.view` bilan |
+| CRUD | `/products`, `/customers`, `/suppliers`, `/employees`, `/warehouses` | `*.view` / `*.manage` | `costPrice` faqat `costs.view` bilan; `price` narx ruxsati yo'q (injener) foydalanuvchiga yuborilmaydi |
 | GET | `/stock-balance`, `/movements` | `stock.view` | |
 | POST | `/movements` | `stock.move` | `{type: transfer|writeoff, fromWarehouseId, toWarehouseId?, productId, qty}` |
 | GET/POST | `/sale-orders` | `sales.view` / `sales.create` | `{customerId, warehouseId, items:[{productId,qty,price}], confirm}` |
@@ -23,7 +23,7 @@ Xatolar: `{ statusCode, message }` (400 validatsiya/biznes qoida, 401, 403 ruxsa
 | GET | `/requests`, `/requests/:id`, `/requests/statuses` | `requests.view` | narxlar ruxsatga qarab olib tashlanadi |
 | POST | `/requests` | `requests.create` | |
 | POST | `/requests/:id/<amal>` | bosqichga qarab | `take, configuration, submit-configuration, pricing, submit-pricing, review, customer-decision, contract, sign-contract, confirm-advance, procurement, submit-procurement, procurement-decision, receive, issue, return, finish-assembly, act, deliver, cancel, comment` |
-| CRUD | `/contract-templates` | `templates.manage` | `{{placeholder}}` lar: `/contract-templates/placeholders` |
+| CRUD | `/contract-templates` | `templates.manage` | `{{placeholder}}` lar: `/contract-templates/placeholders`; noma'lum maydon yoki `{{itemsTable}}` yo'q bo'lsa 400 |
 | GET | `/contracts`, `/acts` | | |
 | GET | `/notifications` · POST `/notifications/:id/read`, `/notifications/read-all` | login | |
 | GET/PUT | `/settings` | login / `settings.manage` | kompaniya, avans %, ustama %, muddat, QQS % |

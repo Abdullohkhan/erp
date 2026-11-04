@@ -6,9 +6,17 @@ import { AuditService } from '../common/audit.service.js'
 import { ZodPipe, str } from '../common/zod.js'
 import { CurrentUser, Perm } from '../auth/decorators.js'
 import type { AuthUser } from '../auth/auth.types.js'
-import { DEFAULT_CONTRACT_TEMPLATE } from './render.js'
+import { BusinessError } from '../common/errors.js'
+import { CONTRACT_PLACEHOLDERS, DEFAULT_CONTRACT_TEMPLATE, unknownPlaceholders } from './render.js'
 
 const TemplateDto = z.object({ name: str, body: str, isDefault: z.boolean().default(false) })
+
+function checkBody(body?: string) {
+  if (body === undefined) return
+  const bad = unknownPlaceholders(body)
+  if (bad.length) throw new BusinessError(`Shablonda noma'lum maydon(lar): ${bad.map((k) => `{{${k}}}`).join(', ')}`)
+  if (!/\{\{\s*itemsTable\s*\}\}/.test(body)) throw new BusinessError("Shablonda {{itemsTable}} (tovarlar jadvali) bo'lishi shart")
+}
 
 @ApiTags('documents')
 @Controller()
@@ -23,15 +31,14 @@ export class DocumentsController {
   @Get('contract-templates/placeholders') @Perm('templates.manage', 'requests.contract')
   placeholders() {
     return {
-      placeholders: ['number', 'date', 'total', 'advancePct', 'advanceAmount', 'deadlineDays', 'itemsTable',
-        'customer.name', 'customer.inn', 'customer.address', 'customer.phone',
-        'company.name', 'company.inn', 'company.address', 'company.phone', 'company.bank', 'company.director'],
+      placeholders: CONTRACT_PLACEHOLDERS,
       example: DEFAULT_CONTRACT_TEMPLATE,
     }
   }
 
   @Post('contract-templates') @Perm('templates.manage')
   async createTemplate(@CurrentUser() u: AuthUser, @Body(new ZodPipe(TemplateDto)) b: z.infer<typeof TemplateDto>) {
+    checkBody(b.body)
     const t = await this.prisma.$transaction(async (tx) => {
       if (b.isDefault) await tx.contractTemplate.updateMany({ data: { isDefault: false } })
       return tx.contractTemplate.create({ data: b })
@@ -42,6 +49,7 @@ export class DocumentsController {
 
   @Patch('contract-templates/:id') @Perm('templates.manage')
   async updateTemplate(@CurrentUser() u: AuthUser, @Param('id') id: string, @Body(new ZodPipe(TemplateDto.partial())) b: Partial<z.infer<typeof TemplateDto>>) {
+    checkBody(b.body)
     const t = await this.prisma.$transaction(async (tx) => {
       if (b.isDefault) await tx.contractTemplate.updateMany({ where: { id: { not: id } }, data: { isDefault: false } })
       return tx.contractTemplate.update({ where: { id }, data: b })
