@@ -228,31 +228,37 @@ export class RequestsService {
     return this.done(u, id)
   }
 
-  /** Lines covered by stock stay "stock"; everything else must be bought → declarant prices it. */
+  /**
+   * Lines covered by free stock stay "stock" and are reserved for this request (StockBalance.reservedQty);
+   * everything else must be bought → declarant prices it. Balance rows are locked (`FOR UPDATE`), so two
+   * requests submitted at the same time cannot both reserve the same goods.
+   */
   async submitConfiguration(u: AuthUser, id: string, comment?: string | null) {
     this.require(u, 'requests.configure')
     await this.run(async (tx) => {
       const r = await this.load(tx, id, ['CONFIGURATION'])
       if (r.items.length === 0) throw new BusinessError("Konfiguratsiya bo'sh")
       if (!r.warehouseId) throw new BusinessError('Ombor tanlanmagan')
+      const balances = await this.stock.lock(tx, r.warehouseId, r.items.flatMap((i) => (i.productId ? [i.productId] : [])))
       const needed = new Map<string, number>()
       let anyPurchase = false
       for (const i of r.items) {
         let source = 'purchase'
         if (i.productId) {
-          const bal = await tx.stockBalance.findUnique({ where: { warehouseId_productId: { warehouseId: r.warehouseId, productId: i.productId } } })
-          const available = num(bal?.qty) - num(bal?.reservedQty) - (needed.get(i.productId) ?? 0)
-          if (available >= num(i.qty)) {
+          const bal = balances.get(i.productId)
+          const available = (bal?.qty ?? 0) - (bal?.reservedQty ?? 0) - (needed.get(i.productId) ?? 0)
+          if (available + 1e-9 >= num(i.qty)) {
             source = 'stock'
             needed.set(i.productId, (needed.get(i.productId) ?? 0) + num(i.qty))
           }
         }
         if (source === 'purchase') anyPurchase = true
         await tx.requestItem.update({ where: { id: i.id }, data: {
-          source,
+          source, reservedQty: source === 'stock' ? i.qty : 0,
           ...(source === 'stock' ? { unitCost: await this.stock.costOf(tx, r.warehouseId, i.productId!) } : {}),
         } })
       }
+      for (const [productId, q] of needed) await this.stock.reserve(tx, r.warehouseId, productId, q)
       await this.move(tx, u, r, anyPurchase ? 'PRICING' : 'REVIEW', 'submit-configuration', comment)
     })
     return this.done(u, id)
@@ -451,14 +457,21 @@ export class RequestsService {
           requestId: r.id, createdById: u.id,
         } })
         await this.finance.confirmPurchase(tx, po.id, u.id)
-        for (const i of lines) await tx.requestItem.update({ where: { id: i.id }, data: { receivedQty: i.qty, unitCost: actualUnitCost(i) } })
+        // Received goods are held for this request until the engineer takes them.
+        for (const i of lines) {
+          await this.stock.reserve(tx, wh.id, i.productId!, num(i.qty), i.name)
+          await tx.requestItem.update({ where: { id: i.id }, data: { receivedQty: i.qty, unitCost: actualUnitCost(i), reservedQty: { increment: i.qty } } })
+        }
       }
       await this.move(tx, u, r, 'ASSEMBLY', 'received', comment)
     })
     return this.done(u, id)
   }
 
-  /** Engineer takes parts from the warehouse (sign -1) or returns them (sign 1). */
+  /**
+   * Engineer takes parts from the warehouse (sign -1) or returns them (sign 1).
+   * Taking consumes this line's reservation first (reserved → dispatch); returned parts are reserved again.
+   */
   async issue(u: AuthUser, id: string, b: { itemId: string; qty: number }, sign: -1 | 1) {
     this.require(u, 'requests.assemble')
     await this.run(async (tx) => {
@@ -470,13 +483,18 @@ export class RequestsService {
       if (sign < 0 && issued + b.qty > num(item.qty) + 1e-9) throw new BusinessError(`Kerakli miqdordan ko'p: ${item.name}`)
       if (sign > 0 && b.qty > issued + 1e-9) throw new BusinessError(`Berilgandan ko'p qaytarib bo'lmaydi: ${item.name}`)
       const cost = await this.stock.costOf(tx, r.warehouseId!, item.productId)
+      const reserved = num(item.reservedQty)
+      const fromReserve = sign < 0 ? Math.min(b.qty, reserved) : 0
+      if (fromReserve > 0) await this.stock.reserve(tx, r.warehouseId!, item.productId, -fromReserve)
       await this.stock.apply(tx, r.warehouseId!, [{ productId: item.productId, productName: item.name, qty: b.qty, unitCost: cost }], sign)
+      if (sign > 0) await this.stock.reserve(tx, r.warehouseId!, item.productId, b.qty, item.name)
+      const newReserved = sign < 0 ? reserved - fromReserve : reserved + b.qty
       await this.stock.movement(tx, {
         type: sign < 0 ? 'dispatch' : 'receipt', ...(sign < 0 ? { fromWarehouseId: r.warehouseId! } : { toWarehouseId: r.warehouseId! }),
         items: [{ productId: item.productId, productName: item.name, unit: item.unit, qty: b.qty, price: cost, sum: cost * b.qty }],
         notes: `${r.number} ${sign < 0 ? "(yig'ish uchun)" : '(qaytarildi)'}`, requestId: r.id, createdById: u.id,
       })
-      await tx.requestItem.update({ where: { id: item.id }, data: { issuedQty: issued - sign * b.qty } })
+      await tx.requestItem.update({ where: { id: item.id }, data: { issuedQty: issued - sign * b.qty, reservedQty: newReserved } })
       await this.event(tx, u, id, sign < 0 ? 'issue' : 'return', `${item.name} × ${b.qty}`)
     })
     return this.done(u, id)
@@ -520,12 +538,17 @@ export class RequestsService {
     return this.done(u, id)
   }
 
-  /** Cancels a request: issued parts go back to stock and a signed contract's debt is reversed. */
+  /** Cancels a request: reservations are released, issued parts go back to stock and a signed contract's debt is reversed. */
   async cancel(u: AuthUser, id: string, comment?: string | null) {
     this.require(u, 'requests.cancel')
     await this.run(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "Request" WHERE id = ${id} FOR UPDATE`
       const r = await tx.request.findUniqueOrThrow({ where: { id }, include: full })
       if (FINAL_STATUSES.includes(r.status)) throw new BusinessError('Zayavka allaqachon yopilgan')
+      for (const i of r.items.filter((x) => num(x.reservedQty) > 0 && x.productId)) {
+        await this.stock.reserve(tx, r.warehouseId!, i.productId!, -num(i.reservedQty))
+        await tx.requestItem.update({ where: { id: i.id }, data: { reservedQty: 0 } })
+      }
       for (const i of r.items.filter((x) => num(x.issuedQty) > 0 && x.productId)) {
         await this.stock.apply(tx, r.warehouseId!, [{ productId: i.productId!, qty: num(i.issuedQty), unitCost: await this.stock.costOf(tx, r.warehouseId!, i.productId!) }], 1)
         await tx.requestItem.update({ where: { id: i.id }, data: { issuedQty: 0 } })

@@ -39,7 +39,8 @@ export class StockService {
       } else merged.set(l.productId, { ...l })
     }
     const plan: { id?: string; productId: string; qty: number; costPrice: number }[] = []
-    for (const l of merged.values()) {
+    // Fixed lock order (by product id) so two documents with the same products cannot deadlock.
+    for (const l of [...merged.values()].sort((a, b) => (a.productId < b.productId ? -1 : a.productId > b.productId ? 1 : 0))) {
       // Lock the row so concurrent documents cannot oversell.
       const rows = await tx.$queryRaw<{ id: string; qty: Prisma.Decimal; reservedQty: Prisma.Decimal; costPrice: Prisma.Decimal }[]>`
         SELECT id, qty, "reservedQty", "costPrice" FROM "StockBalance"
@@ -59,6 +60,40 @@ export class StockService {
     for (const p of plan) {
       if (p.id) await tx.stockBalance.update({ where: { id: p.id }, data: { qty: p.qty, costPrice: p.costPrice } })
       else await tx.stockBalance.create({ data: { warehouseId, productId: p.productId, qty: p.qty, costPrice: p.costPrice } })
+    }
+  }
+
+  /**
+   * Locks the balance rows of the given products (sorted, `FOR UPDATE`) and returns them by product id.
+   * Missing rows are simply absent (nothing on stock).
+   */
+  async lock(tx: Tx, warehouseId: string, productIds: string[]) {
+    const ids = [...new Set(productIds)].sort()
+    const out = new Map<string, { id: string; qty: number; reservedQty: number }>()
+    if (!ids.length) return out
+    const rows = await tx.$queryRaw<{ id: string; productId: string; qty: Prisma.Decimal; reservedQty: Prisma.Decimal }[]>`
+      SELECT id, "productId", qty, "reservedQty" FROM "StockBalance"
+      WHERE "warehouseId" = ${warehouseId} AND "productId" = ANY(${ids}::text[]) ORDER BY "productId" FOR UPDATE`
+    for (const r of rows) out.set(r.productId, { id: r.id, qty: num(r.qty), reservedQty: num(r.reservedQty) })
+    return out
+  }
+
+  /**
+   * Reserves (qty > 0) or releases (qty < 0) goods for a request. Reserving more than the free quantity
+   * (qty − reservedQty) throws, so goods held by one request cannot be taken by another one.
+   */
+  async reserve(tx: Tx, warehouseId: string, productId: string, qty: number, productName?: string) {
+    if (Math.abs(qty) < 1e-9) return
+    const rec = (await this.lock(tx, warehouseId, [productId])).get(productId)
+    if (qty > 0) {
+      const available = (rec?.qty ?? 0) - (rec?.reservedQty ?? 0)
+      if (!rec || qty > available + 1e-9) {
+        const p = productName ?? (await tx.product.findUnique({ where: { id: productId } }))?.name ?? productId
+        throw new BusinessError(`Omborda band qilish uchun yetarli tovar yo'q: ${p} (mavjud ${Math.max(0, available)}, kerak ${qty})`)
+      }
+      await tx.stockBalance.update({ where: { id: rec.id }, data: { reservedQty: rec.reservedQty + qty } })
+    } else if (rec) {
+      await tx.stockBalance.update({ where: { id: rec.id }, data: { reservedQty: Math.max(0, rec.reservedQty + qty) } })
     }
   }
 

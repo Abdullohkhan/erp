@@ -310,6 +310,8 @@ model RequestItem {
   otherCosts      Decimal  @default(0) @db.Decimal(18, 2)
   receivedQty     Decimal  @default(0) @db.Decimal(18, 3)
   issuedQty       Decimal  @default(0) @db.Decimal(18, 3)
+  /// Quantity held for this line in StockBalance.reservedQty (released on issue / cancel)
+  reservedQty     Decimal  @default(0) @db.Decimal(18, 3)
   sortOrder       Int      @default(0)
 }
 
