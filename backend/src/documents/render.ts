@@ -4,7 +4,7 @@ export const fmtMoney = (n: number) => new Intl.NumberFormat('ru-RU', { maximumF
 export const fmtDate = (d: Date) => d.toLocaleDateString('ru-RU')
 
 /** Placeholders a contract template may use (anything else is rejected when the template is saved). */
-export const CONTRACT_PLACEHOLDERS = ['number', 'date', 'total', 'advancePct', 'advanceAmount', 'deadlineDays', 'itemsTable',
+export const CONTRACT_PLACEHOLDERS = ['number', 'date', 'total', 'amountInWords', 'amountInWordsRu', 'advancePct', 'advanceAmount', 'deadlineDays', 'itemsTable',
   'customer.name', 'customer.inn', 'customer.address', 'customer.phone',
   'company.name', 'company.inn', 'company.address', 'company.phone', 'company.bank', 'company.director']
 
@@ -44,7 +44,7 @@ export const DEFAULT_CONTRACT_TEMPLATE = `<h2 style="text-align:center">SHARTNOM
 <p>Bajaruvchi quyidagi tovar va xizmatlarni yetkazib beradi:</p>
 {{itemsTable}}
 <h4>2. Narx va to'lov tartibi</h4>
-<p>Shartnomaning umumiy qiymati: <b>{{total}}</b>. Buyurtmachi {{advancePct}}% miqdorida oldindan to'lov (<b>{{advanceAmount}}</b>) amalga oshiradi.
+<p>Shartnomaning umumiy qiymati: <b>{{total}}</b> ({{amountInWords}}). Buyurtmachi {{advancePct}}% miqdorida oldindan to'lov (<b>{{advanceAmount}}</b>) amalga oshiradi.
 Oldindan to'lov kelib tushgunga qadar ishlar boshlanmaydi. Qolgan summa tovar topshirilgandan keyin to'lanadi.</p>
 <h4>3. Muddat</h4>
 <p>Bajarish muddati: oldindan to'lov kelib tushgan kundan boshlab {{deadlineDays}} kun.</p>
@@ -58,6 +58,43 @@ export const DEFAULT_ACT_TEMPLATE = `<h2 style="text-align:center">QABUL QILISH-
 <p style="text-align:right">{{date}}</p>
 <p>{{contractNumber}}-sonli shartnoma asosida <b>{{company.name}}</b> quyidagi tovarlarni <b>{{customer.name}}</b>ga topshirdi, Buyurtmachi esa qabul qildi:</p>
 {{itemsTable}}
-<p>Jami: <b>{{total}}</b>. To'langan: <b>{{paid}}</b>. Qoldiq: <b>{{balance}}</b>.</p>
+<p>Jami: <b>{{total}}</b> ({{amountInWords}}). To'langan: <b>{{paid}}</b>. Qoldiq: <b>{{balance}}</b>.</p>
 <p>Tomonlarning bir-biriga e'tirozlari yo'q.</p>
 <table style="width:100%"><tr><td>Topshirdi: ____________ {{company.name}}</td><td>Qabul qildi: ____________ {{customer.name}}</td></tr></table>`
+
+
+/** Payment invoice (hisob) for a request; rendered on the fly, not stored. */
+export const DEFAULT_INVOICE_TEMPLATE = `<h2 style="text-align:center">TO'LOV UCHUN HISOB № {{number}}</h2>
+<p style="text-align:right">{{date}}</p>
+<p><b>Yetkazib beruvchi:</b> {{company.name}}, INN {{company.inn}}, {{company.address}}, {{company.bank}}, tel: {{company.phone}}</p>
+<p><b>Buyurtmachi:</b> {{customer.name}}, INN {{customer.inn}}, {{customer.address}}, tel: {{customer.phone}}</p>
+<p>Asos: {{contractNumber}}-sonli shartnoma</p>
+{{itemsTable}}
+<p>Jami to'lovga: <b>{{total}}</b> ({{amountInWords}}).</p>
+<p>To'langan: <b>{{paid}}</b>. Qoldiq: <b>{{balance}}</b>.</p>
+<p>Direktor: ____________ {{company.director}}</p>`
+
+/** Waybill (yo'l varaqasi): no prices, so drivers may print it. */
+export const DEFAULT_WAYBILL_TEMPLATE = `<h2 style="text-align:center">YO'L VARAQASI № {{number}}</h2>
+<p style="text-align:right">{{date}}</p>
+<table border="1" cellspacing="0" cellpadding="4" style="border-collapse:collapse;width:100%">
+<tr><td><b>Zayavka</b></td><td>{{requestNumber}}</td></tr>
+<tr><td><b>Jo'natuvchi</b></td><td>{{company.name}}, {{company.address}}, {{company.phone}}</td></tr>
+<tr><td><b>Qabul qiluvchi</b></td><td>{{customer.name}}, {{customer.phone}}</td></tr>
+<tr><td><b>Manzil</b></td><td>{{address}}</td></tr>
+<tr><td><b>Haydovchi</b></td><td>{{driverName}} {{driverPhone}}</td></tr>
+<tr><td><b>Transport</b></td><td>{{vehicleNumber}}</td></tr>
+<tr><td><b>Rejalashtirilgan sana</b></td><td>{{plannedAt}}</td></tr>
+<tr><td><b>Haqiqiy sana</b></td><td>{{deliveredAt}}</td></tr>
+</table>
+<h4>Yuk tarkibi</h4>
+{{itemsTable}}
+<p>{{notes}}</p>
+<table style="width:100%"><tr><td>Topshirdi: ____________</td><td>Haydovchi: ____________ {{driverName}}</td><td>Qabul qildi: ____________</td></tr></table>`
+
+/** Items table without prices (waybill). */
+export function goodsTable(lines: { name: string; qty: number; unit: string }[]): string {
+  const rows = lines.map((l, i) => `<tr><td>${i + 1}</td><td>${esc(l.name)}</td><td>${esc(l.qty)} ${esc(l.unit)}</td></tr>`).join('')
+  return `<table border="1" cellspacing="0" cellpadding="4" style="border-collapse:collapse;width:100%">
+<thead><tr><th>№</th><th>Nomi</th><th>Miqdori</th></tr></thead><tbody>${rows}</tbody></table>`
+}

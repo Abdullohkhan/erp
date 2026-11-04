@@ -12,6 +12,7 @@ import { StockService, type DocItem } from '../stock/stock.service.js'
 import { FinanceService } from '../finance/finance.service.js'
 import { getSettings } from '../system/settings.js'
 import { DEFAULT_ACT_TEMPLATE, DEFAULT_CONTRACT_TEMPLATE, fmtDate, fmtMoney, itemsTable, renderTemplate } from '../documents/render.js'
+import { amountWords } from '../documents/amount-words.js'
 import { NotificationsService } from './notifications.service.js'
 import { STATUS_OWNER, FINAL_STATUSES } from './workflow.js'
 import { advanceAmount, salePrice, unitCost } from './pricing.js'
@@ -350,7 +351,7 @@ export class RequestsService {
       const t = totals({ ...r, advancePct: new Prisma.Decimal(advancePct) })
       const number = r.contract?.number ?? (await nextNumber(tx, 'SHR'))
       const body = renderTemplate(template?.body ?? DEFAULT_CONTRACT_TEMPLATE, {
-        number, date: fmtDate(new Date()), company: s.company, customer: r.customer, total: fmtMoney(t.totalPrice),
+        number, date: fmtDate(new Date()), company: s.company, customer: r.customer, total: fmtMoney(t.totalPrice), ...amountWords(t.totalPrice),
         advancePct, advanceAmount: fmtMoney(t.advanceAmount), deadlineDays,
         itemsTable: itemsTable(r.items.map((i) => ({ name: i.name, qty: num(i.qty), unit: i.unit, price: num(i.salePrice) }))),
       })
@@ -501,7 +502,7 @@ export class RequestsService {
       const number = await nextNumber(tx, 'AKT')
       const body = renderTemplate(DEFAULT_ACT_TEMPLATE, {
         number, date: fmtDate(new Date()), company: s.company, customer: r.customer, contractNumber: r.contract?.number ?? '',
-        total: fmtMoney(t.totalPrice), paid: fmtMoney(num(r.paid)), balance: fmtMoney(t.balance),
+        total: fmtMoney(t.totalPrice), ...amountWords(t.totalPrice), paid: fmtMoney(num(r.paid)), balance: fmtMoney(t.balance),
         itemsTable: itemsTable(r.items.map((i) => ({ name: i.name, qty: num(i.qty), unit: i.unit, price: num(i.salePrice) }))),
       })
       await tx.act.create({ data: { number, requestId: id, body } })
