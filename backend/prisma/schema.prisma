@@ -37,6 +37,7 @@ model User {
   createdAt        DateTime       @default(now())
   updatedAt        DateTime       @updatedAt
   notifications    Notification[]
+  deliveries       Delivery[]
 }
 
 // ───────────── Catalogs ─────────────
@@ -273,6 +274,7 @@ model Request {
   events       RequestEvent[]
   contract     Contract?
   act          Act?
+  deliveries   Delivery[]
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
 
@@ -378,6 +380,43 @@ model Act {
   scanUploadedAt   DateTime?
   scanUploadedById String?
   createdAt DateTime @default(now())
+}
+
+// ───────────── Delivery (yetkazish) ─────────────
+
+enum DeliveryStatus {
+  PLANNED
+  IN_TRANSIT
+  DELIVERED
+  RETURNED
+}
+
+model Delivery {
+  id            String         @id @default(cuid())
+  number        String         @unique
+  requestId     String
+  request       Request        @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  /// Driver as a system user (sees only own deliveries) or just a name / phone
+  driverId      String?
+  driver        User?          @relation(fields: [driverId], references: [id], onDelete: SetNull)
+  driverName    String
+  driverPhone   String?
+  vehicleNumber String?
+  address       String
+  plannedAt     DateTime?
+  departedAt    DateTime?
+  deliveredAt   DateTime?
+  status        DeliveryStatus @default(PLANNED)
+  /// Logistics cost, whole so'm; added to the request's costs
+  cost          Decimal        @default(0) @db.Decimal(18, 2)
+  receivedBy    String?
+  notes         String?
+  createdById   String
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  @@index([driverId])
+  @@index([requestId])
 }
 
 // ───────────── System ─────────────

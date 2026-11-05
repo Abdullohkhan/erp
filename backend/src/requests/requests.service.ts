@@ -24,6 +24,7 @@ const full = {
   events: { orderBy: { createdAt: 'asc' } },
   contract: true,
   act: true,
+  deliveries: { orderBy: { createdAt: 'asc' } },
 } as const satisfies Prisma.RequestInclude
 
 type FullRequest = Prisma.RequestGetPayload<{ include: typeof full }>
@@ -48,11 +49,14 @@ function actualUnitCost(i: Item): number {
   })
 }
 
-export const totals = (r: { items: Item[]; advancePct: Prisma.Decimal; paid: Prisma.Decimal }) => {
-  const totalCost = r.items.reduce((s, i) => s + num(i.unitCost) * num(i.qty), 0)
+export const totals = (r: { items: Item[]; advancePct: Prisma.Decimal; paid: Prisma.Decimal; deliveries?: { cost: Prisma.Decimal }[] }) => {
+  // Logistics of deliveries is part of the request's cost.
+  const deliveryCost = (r.deliveries ?? []).reduce((s, d) => s + num(d.cost), 0)
+  const totalCost = r.items.reduce((s, i) => s + num(i.unitCost) * num(i.qty), 0) + deliveryCost
   const totalPrice = r.items.reduce((s, i) => s + num(i.salePrice) * num(i.qty), 0)
   return {
     totalCost: Math.round(totalCost),
+    deliveryCost: Math.round(deliveryCost),
     totalPrice: Math.round(totalPrice),
     advanceAmount: advanceAmount(totalPrice, num(r.advancePct)),
     balance: Math.round(totalPrice - num(r.paid)),
@@ -85,12 +89,22 @@ export class RequestsService {
       if (!seePrice) delete out.salePrice
       return out
     })
-    const base = { ...r, items, owner: STATUS_OWNER[r.status] }
+    const deliveries = r.deliveries.map((d) => {
+      if (seeCost) return d
+      const { cost: _c, ...rest } = d
+      return rest
+    })
+    const base = { ...r, items, deliveries, owner: STATUS_OWNER[r.status] }
     if (!seePrice) {
       const { contract: _c, act: _a, paid: _p, markupPct: _m, ...rest } = base
       return { ...rest, contract: r.contract ? { id: r.contract.id, number: r.contract.number, status: r.contract.status } : null, act: r.act ? { id: r.act.id, number: r.act.number } : null }
     }
     return { ...base, ...(seeCost ? t : { totalPrice: t.totalPrice, advanceAmount: t.advanceAmount, balance: t.balance }), ...(seeCost ? {} : { markupPct: undefined }) }
+  }
+
+  /** Request lines without any money (drivers, waybills). */
+  static goods(items: { name: string; qty: Prisma.Decimal; unit: string }[]) {
+    return items.map((i) => ({ name: i.name, qty: num(i.qty), unit: i.unit }))
   }
 
   async list(u: AuthUser, filter: { status?: RequestStatus; mine?: boolean }) {
@@ -589,13 +603,28 @@ export class RequestsService {
     return this.done(u, id)
   }
 
+  /** Goods handed over: an open delivery record (if any) is closed as delivered, the request is completed. */
   async deliver(u: AuthUser, id: string, comment?: string | null) {
     this.require(u, 'requests.deliver')
-    await this.run(async (tx) => {
-      const r = await this.load(tx, id, ['DELIVERY'])
-      await this.move(tx, u, r, 'COMPLETED', 'delivered', comment)
-    })
+    await this.run(async (tx) => this.completeDelivery(tx, u, await this.load(tx, id, ['DELIVERY']), comment ?? ''))
     return this.done(u, id)
+  }
+
+  /** Inside a transaction that already holds the request lock (also used by DeliveriesService). */
+  async completeDelivery(tx: Tx, u: AuthUser, r: FullRequest, receivedBy: string, deliveryId?: string) {
+    for (const d of r.deliveries.filter((x) => x.id !== deliveryId && (x.status === 'PLANNED' || x.status === 'IN_TRANSIT'))) {
+      await tx.delivery.update({ where: { id: d.id }, data: { status: 'DELIVERED', deliveredAt: new Date(), receivedBy } })
+    }
+    await this.move(tx, u, r, 'COMPLETED', 'delivered', receivedBy)
+  }
+
+  /** Locks and loads a request in the given statuses (for other services). */
+  lockRequest(tx: Tx, id: string, statuses: RequestStatus[]) {
+    return this.load(tx, id, statuses)
+  }
+
+  logEvent(tx: Tx, u: AuthUser, requestId: string, action: string, comment?: string | null) {
+    return this.event(tx, u, requestId, action, comment)
   }
 
   /** Cancels a request: reservations are released, issued parts go back to stock and a signed contract's debt is reversed. */

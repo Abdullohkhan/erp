@@ -25,6 +25,7 @@ export const DEMO_USERS = [
   { username: 'supply', fullName: "Ergashev Sardor", role: 'procurement' },
   { username: 'accountant', fullName: 'Xasanova Munira', role: 'accountant' },
   { username: 'storekeeper', fullName: 'Qodirov Akmal', role: 'storekeeper' },
+  { username: 'driver1', fullName: 'Sobirov Anvar', role: 'driver' },
 ]
 export const DEMO_PASSWORD = 'Demo12345'
 

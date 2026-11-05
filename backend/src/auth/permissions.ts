@@ -62,6 +62,10 @@ export const PERMISSIONS = {
   'requests.deliver': { group: 'Zayavkalar', label: 'Yetkazib berish' },
   'requests.cancel': { group: 'Zayavkalar', label: 'Zayavkani bekor qilish' },
   'templates.manage': { group: 'Zayavkalar', label: 'Shartnoma shablonlarini boshqarish' },
+
+  // Delivery
+  'deliveries.view': { group: 'Yetkazish', label: "Barcha yetkazishlarni ko'rish" },
+  'deliveries.drive': { group: 'Yetkazish', label: "Haydovchi: o'ziga biriktirilgan yetkazishlar" },
 } as const
 
 export type Permission = keyof typeof PERMISSIONS
@@ -96,7 +100,7 @@ export const DEFAULT_ROLES: { key: string; name: string; description: string; pe
   },
   {
     key: 'procurement', name: "Ta'minotchi", description: "Yetkazuvchi, logistika va yetkazib berish",
-    permissions: [...view, 'suppliers.view', 'suppliers.manage', 'requests.procure', 'requests.deliver', 'purchases.view', 'costs.view'],
+    permissions: [...view, 'suppliers.view', 'suppliers.manage', 'requests.procure', 'requests.deliver', 'deliveries.view', 'purchases.view', 'costs.view'],
   },
   {
     key: 'accountant', name: 'Buxgalter', description: "To'lovlar, avans va xarajatlarni tasdiqlaydi",
@@ -106,5 +110,9 @@ export const DEFAULT_ROLES: { key: string; name: string; description: string; pe
   {
     key: 'storekeeper', name: 'Omborchi', description: 'Omborga kirim, chiqim va harakat',
     permissions: [...view, 'stock.move', 'stock.receive', 'requests.receive', 'purchases.view', 'purchases.confirm'],
+  },
+  {
+    key: 'driver', name: 'Haydovchi', description: "Faqat o'ziga biriktirilgan yetkazishlar; narxlarni ko'rmaydi",
+    permissions: ['deliveries.drive'],
   },
 ]

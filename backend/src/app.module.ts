@@ -20,15 +20,18 @@ import { RequestsService } from './requests/requests.service.js'
 import { RequestsController } from './requests/requests.controller.js'
 import { DocumentsController } from './documents/documents.controller.js'
 import { SystemController } from './system/system.controller.js'
+import { DeliveriesController, DeliveriesService } from './deliveries/deliveries.js'
 
 @Module({
   imports: [JwtModule.register({})],
   controllers: [
     AuthController, UsersController, RolesController, ...catalogControllers, StockController,
-    SaleOrdersController, PurchaseOrdersController, MoneyController, RequestsController, DocumentsController, SystemController,
+    SaleOrdersController, PurchaseOrdersController, MoneyController,
+    // Before RequestsController: its POST /requests/:id/:action would catch /requests/:id/deliveries.
+    DeliveriesController, RequestsController, DocumentsController, SystemController,
   ],
   providers: [
-    PrismaService, AuditService, AuthService, StockService, FinanceService, NotificationsService, RequestsService,
+    PrismaService, AuditService, AuthService, StockService, FinanceService, NotificationsService, RequestsService, DeliveriesService,
     { provide: APP_GUARD, useClass: AuthGuard },
     { provide: APP_INTERCEPTOR, useClass: SerializeInterceptor },
     { provide: APP_FILTER, useClass: AllExceptionsFilter },
