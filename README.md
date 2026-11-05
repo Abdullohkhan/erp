@@ -44,21 +44,25 @@ Swagger: `http://localhost:3001/api/docs`.
 
 ### Demo hisoblar (`SEED_DEMO` yoqilganda, parol `Demo12345`)
 
-`admin`, `director`, `seller1` (sotuvchi), `engineer` (injener), `declarant` (deklarant), `supply` (ta'minotchi), `accountant` (buxgalter), `storekeeper` (omborchi). Owner: `owner` / `.env` dagi parol.
+`admin`, `director`, `seller1` (sotuvchi), `engineer` (injener), `declarant` (deklarant), `supply` (ta'minotchi), `accountant` (buxgalter), `storekeeper` (omborchi), `driver1` (haydovchi). Owner: `owner` / `.env` dagi parol.
 
 ## Asosiy jarayon — zayavka
 
-Sotuvchi zayavka ochadi → **injener** konfiguratsiya qiladi (katalogda yo'q tovar qizil) → **deklarant** TN VED, boj, QQS, sertifikat, logistika bilan tannarxni hisoblaydi → **narx ko'rib chiqiladi** (ustama) → **buyurtmachi tasdiqlaydi** → **shartnoma** (shablondan, PDF/chop etish) → **avans** (standart 30%, kelmaguncha ish boshlanmaydi, buxgalter tasdiqlaydi) → **ta'minot** (yetkazuvchi, haqiqiy narx, logistika) → **buxgalter tasdiqlaydi** → **omborga qabul** → **injener ombordan olib yig'adi** → **dalolatnoma (akt)** → **yetkazib berish**.
+Sotuvchi zayavka ochadi → **injener** konfiguratsiya qiladi (katalogda yo'q tovar qizil) → **deklarant** TN VED, boj, QQS, sertifikat, logistika bilan tannarxni hisoblaydi → **narx ko'rib chiqiladi** (ustama) → **buyurtmachi tasdiqlaydi** → **shartnoma** (shablondan, PDF/chop etish) → **avans** (standart 30%, kelmaguncha ish boshlanmaydi, buxgalter tasdiqlaydi) → **ta'minot** (yetkazuvchi, haqiqiy narx, logistika) → **buxgalter tasdiqlaydi** → **omborga qabul** → **injener ombordan olib yig'adi** → **dalolatnoma (akt)** → **yetkazib berish** (haydovchi, transport, yo'l varaqasi).
+
+Hujjatlar (shartnoma, akt, to'lov hisobi, yo'l varaqasi) serverda **PDF** bo'lib yaratiladi (pdfmake, brauzersiz); summa so'z bilan (`{{amountInWords}}` o'zbekcha, `{{amountInWordsRu}}` ruscha). Imzolangan skan (PDF/JPG/PNG) yuklanadi va diskda saqlanadi (`UPLOAD_DIR`, `UPLOAD_MAX_MB`). Konfiguratsiya tasdiqlanganda ombordagi qismlar zayavkaga **band qilinadi** — boshqa zayavka yoki savdo ularni ololmaydi.
 
 Har bosqichda faqat mas'ul rol amal bajaradi; bosqich o'zgarganda o'sha rol xodimlariga bildirishnoma boradi. Injener narxlarni umuman ko'rmaydi. Batafsil: [docs/ROLES.md](docs/ROLES.md).
 
 ## Rollar
 
-Owner — eng yuqori rol: barcha ruxsatlar unda va faqat u **Boshqaruv → Rollar va ruxsatlar** sahifasida boshqa rollarning ruxsatlarini o'zgartira oladi, yangi rol yarata oladi. Qolgan rollar: Admin, Direktor, Sotuvchi, Injener, Deklarant, Ta'minotchi, Buxgalter, Omborchi.
+Owner — eng yuqori rol: barcha ruxsatlar unda va faqat u **Boshqaruv → Rollar va ruxsatlar** sahifasida boshqa rollarning ruxsatlarini o'zgartira oladi, yangi rol yarata oladi. Qolgan rollar: Admin, Direktor, Sotuvchi, Injener, Deklarant, Ta'minotchi, Buxgalter, Omborchi, Haydovchi.
 
 ## Xavfsizlik
 
 - Parollar bcrypt bilan, refresh token SHA-256 bilan saqlanadi; access token 15 daqiqa, refresh 7 kun (rotatsiya).
 - Har bir endpoint ruxsat bilan himoyalangan; narx/tannarx ruxsati yo'q foydalanuvchiga **server** yubormaydi.
-- Ombor, qarz, faktura o'zgarishlari bitta tranzaksiyada; qoldiq qatorlari `FOR UPDATE` bilan bloklanadi.
+- Ombor, qarz, faktura o'zgarishlari bitta tranzaksiyada; qoldiq qatorlari `FOR UPDATE` bilan bloklanadi (band qilishda ham).
+- Injener va haydovchi narx/tannarxni ko'rmaydi (server javobida yo'q); haydovchi faqat o'ziga biriktirilgan yetkazishlarni ko'radi.
+- Yuklangan skan: tur fayl mazmunidan tekshiriladi, hajm cheklangan, nomi server tomonidan generatsiya qilinadi; yuklab olish ruxsat bilan.
 - Login urinishlari cheklangan (5 ta xato → 5 daqiqa), Helmet, CORS, audit jurnali.
