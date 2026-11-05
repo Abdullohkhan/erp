@@ -1,4 +1,7 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post } from '@nestjs/common'
+import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Res, UploadedFile, UseInterceptors } from '@nestjs/common'
+import { FileInterceptor } from '@nestjs/platform-express'
+import { ApiBody, ApiConsumes } from '@nestjs/swagger'
+import type { Response } from 'express'
 import { ApiTags } from '@nestjs/swagger'
 import { z } from 'zod'
 import { PrismaService } from '../common/prisma.service.js'
@@ -7,7 +10,23 @@ import { ZodPipe, str } from '../common/zod.js'
 import { CurrentUser, Perm } from '../auth/decorators.js'
 import type { AuthUser } from '../auth/auth.types.js'
 import { BusinessError } from '../common/errors.js'
+import { RequestsService } from '../requests/requests.service.js'
 import { CONTRACT_PLACEHOLDERS, DEFAULT_CONTRACT_TEMPLATE, unknownPlaceholders } from './render.js'
+import { contentDisposition, htmlToPdf } from './pdf.js'
+import { maxUploadBytes, sendScan, type UploadedScan } from './scans.js'
+
+/** Multipart field "file", one file; the size limit stops reading early (413). */
+const ScanUpload = () => UseInterceptors(FileInterceptor('file', { limits: { fileSize: maxUploadBytes(), files: 1, fields: 5 } }))
+const ScanBody = { schema: { type: 'object', properties: { file: { type: 'string', format: 'binary' } } } } as const
+
+/** Sends a generated PDF (bypasses the JSON serializer). */
+export async function sendPdf(res: Response, fileName: string, html: string, title: string) {
+  const pdf = await htmlToPdf(html, { title })
+  res.setHeader('Content-Type', 'application/pdf')
+  res.setHeader('Content-Disposition', contentDisposition(fileName))
+  res.setHeader('Cache-Control', 'no-store')
+  res.end(pdf)
+}
 
 const TemplateDto = z.object({ name: str, body: str, isDefault: z.boolean().default(false) })
 
@@ -21,7 +40,7 @@ function checkBody(body?: string) {
 @ApiTags('documents')
 @Controller()
 export class DocumentsController {
-  constructor(private prisma: PrismaService, private audit: AuditService) {}
+  constructor(private prisma: PrismaService, private audit: AuditService, private requests: RequestsService) {}
 
   @Get('contract-templates') @Perm('templates.manage', 'requests.contract')
   templates() {
@@ -78,5 +97,53 @@ export class DocumentsController {
       orderBy: { createdAt: 'desc' },
       include: { request: { select: { id: true, number: true, customer: { select: { name: true } } } } },
     })
+  }
+
+  // ───────────── PDF (server-side) ─────────────
+
+  @Get('contracts/:id/pdf') @Perm('requests.contract', 'requests.advance', 'payments.view')
+  async contractPdf(@Param('id') id: string, @Res() res: Response) {
+    const c = await this.prisma.contract.findUniqueOrThrow({ where: { id } })
+    await sendPdf(res, `Shartnoma-${c.number}.pdf`, c.body, `Shartnoma ${c.number}`)
+  }
+
+  @Get('acts/:id/pdf') @Perm('requests.act', 'requests.contract', 'payments.view')
+  async actPdf(@Param('id') id: string, @Res() res: Response) {
+    const a = await this.prisma.act.findUniqueOrThrow({ where: { id } })
+    await sendPdf(res, `Dalolatnoma-${a.number}.pdf`, a.body, `Dalolatnoma ${a.number}`)
+  }
+
+  /** Payment invoice (hisob): HTML preview. */
+  @Get('requests/:id/invoice') @Perm('requests.contract', 'requests.advance', 'payments.view')
+  invoice(@CurrentUser() u: AuthUser, @Param('id') id: string) {
+    return this.requests.invoice(u, id)
+  }
+
+  @Get('requests/:id/invoice/pdf') @Perm('requests.contract', 'requests.advance', 'payments.view')
+  async invoicePdf(@CurrentUser() u: AuthUser, @Param('id') id: string, @Res() res: Response) {
+    const inv = await this.requests.invoice(u, id)
+    await sendPdf(res, `Hisob-${inv.number}.pdf`, inv.html, `Hisob ${inv.number}`)
+  }
+
+  // ───────────── Signed scans ─────────────
+
+  @Post('contracts/:id/scan') @Perm('requests.contract') @ScanUpload() @ApiConsumes('multipart/form-data') @ApiBody(ScanBody)
+  uploadContractScan(@CurrentUser() u: AuthUser, @Param('id') id: string, @UploadedFile() file?: UploadedScan) {
+    return this.requests.attachScan(u, 'contract', id, file)
+  }
+
+  @Post('acts/:id/scan') @Perm('requests.act') @ScanUpload() @ApiConsumes('multipart/form-data') @ApiBody(ScanBody)
+  uploadActScan(@CurrentUser() u: AuthUser, @Param('id') id: string, @UploadedFile() file?: UploadedScan) {
+    return this.requests.attachScan(u, 'act', id, file)
+  }
+
+  @Get('contracts/:id/scan') @Perm('requests.contract', 'requests.advance', 'payments.view')
+  async contractScan(@Param('id') id: string, @Res() res: Response) {
+    await sendScan(res, await this.prisma.contract.findUniqueOrThrow({ where: { id } }))
+  }
+
+  @Get('acts/:id/scan') @Perm('requests.act', 'requests.contract', 'payments.view')
+  async actScan(@Param('id') id: string, @Res() res: Response) {
+    await sendScan(res, await this.prisma.act.findUniqueOrThrow({ where: { id } }))
   }
 }

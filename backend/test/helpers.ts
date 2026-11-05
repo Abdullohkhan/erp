@@ -31,6 +31,15 @@ export function client(app: INestApplication, token?: string) {
     patch: (url: string, body?: object) => auth(request(s).patch(`/api${url}`)).send(body ?? {}),
     put: (url: string, body?: object) => auth(request(s).put(`/api${url}`)).send(body ?? {}),
     del: (url: string) => auth(request(s).delete(`/api${url}`)),
+    /** GET returning the raw body as a Buffer (PDF, scans). */
+    binary: (url: string) => auth(request(s).get(`/api${url}`)).buffer(true).parse((res, cb) => {
+      const chunks: Buffer[] = []
+      res.on('data', (c: Buffer) => chunks.push(c))
+      res.on('end', () => cb(null, Buffer.concat(chunks)))
+    }),
+    /** multipart/form-data upload in field "file". */
+    upload: (url: string, data: Buffer, filename: string, contentType = 'application/octet-stream') =>
+      auth(request(s).post(`/api${url}`)).attach('file', data, { filename, contentType }),
   }
 }
 

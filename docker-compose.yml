@@ -30,6 +30,10 @@ services:
       SEED_OWNER_USERNAME: ${SEED_OWNER_USERNAME:-owner}
       SEED_OWNER_PASSWORD: ${SEED_OWNER_PASSWORD:?set SEED_OWNER_PASSWORD in .env}
       SEED_DEMO: ${SEED_DEMO:-false}
+      UPLOAD_DIR: /app/backend/uploads
+      UPLOAD_MAX_MB: ${UPLOAD_MAX_MB:-10}
+    volumes:
+      - uploads:/app/backend/uploads
 
   web:
     build: { context: ., dockerfile: frontend/Dockerfile }
@@ -40,3 +44,4 @@ services:
 
 volumes:
   pgdata:
+  uploads:

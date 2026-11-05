@@ -11,8 +11,9 @@ import type { RequestStatus } from '../generated/prisma/enums.js'
 import { StockService, type DocItem } from '../stock/stock.service.js'
 import { FinanceService } from '../finance/finance.service.js'
 import { getSettings } from '../system/settings.js'
-import { DEFAULT_ACT_TEMPLATE, DEFAULT_CONTRACT_TEMPLATE, fmtDate, fmtMoney, itemsTable, renderTemplate } from '../documents/render.js'
+import { DEFAULT_ACT_TEMPLATE, DEFAULT_CONTRACT_TEMPLATE, DEFAULT_INVOICE_TEMPLATE, fmtDate, fmtMoney, itemsTable, renderTemplate } from '../documents/render.js'
 import { amountWords } from '../documents/amount-words.js'
+import { checkScan, cleanName, removeScan, saveScan, type UploadedScan } from '../documents/scans.js'
 import { NotificationsService } from './notifications.service.js'
 import { STATUS_OWNER, FINAL_STATUSES } from './workflow.js'
 import { advanceAmount, salePrice, unitCost } from './pricing.js'
@@ -26,6 +27,7 @@ const full = {
 } as const satisfies Prisma.RequestInclude
 
 type FullRequest = Prisma.RequestGetPayload<{ include: typeof full }>
+type ScanData = { scanFile: string; scanName: string; scanMime: string; scanSize: number; scanUploadedAt: Date; scanUploadedById: string }
 type Item = FullRequest['items'][number]
 
 /** Comparable product name: trimmed, lower-case, single spaces. */
@@ -112,6 +114,22 @@ export class RequestsService {
 
   async get(u: AuthUser, id: string) {
     return this.present(u, await this.prisma.request.findUniqueOrThrow({ where: { id }, include: full }))
+  }
+
+  /** Payment invoice (hisob) for a request with a contract; rendered on the fly. Prices → only for users who may see them. */
+  async invoice(u: AuthUser, id: string) {
+    if (!this.canSeePrices(u)) throw new ForbiddenException("Bu amal uchun ruxsat yo'q")
+    const r = await this.prisma.request.findUniqueOrThrow({ where: { id }, include: full })
+    if (!r.contract) throw new BusinessError('Hisob uchun avval shartnoma tuzilishi kerak')
+    const s = await getSettings(this.prisma)
+    const t = totals(r)
+    const number = r.number.replace(/^ZAY/, 'HIS')
+    const html = renderTemplate(DEFAULT_INVOICE_TEMPLATE, {
+      number, date: fmtDate(new Date()), company: s.company, customer: r.customer, contractNumber: r.contract.number,
+      total: fmtMoney(t.totalPrice), ...amountWords(t.totalPrice), paid: fmtMoney(num(r.paid)), balance: fmtMoney(t.balance),
+      itemsTable: itemsTable(r.items.map((i) => ({ name: i.name, qty: num(i.qty), unit: i.unit, price: num(i.salePrice) }))),
+    })
+    return { number, html }
   }
 
   // ───────────── Helpers ─────────────
@@ -372,15 +390,57 @@ export class RequestsService {
   /** Signed contract books the customer's debt and waits for the advance payment. */
   async signContract(u: AuthUser, id: string) {
     this.require(u, 'requests.contract')
-    await this.run(async (tx) => {
-      const r = await this.load(tx, id, ['CONTRACT'])
-      if (!r.contract) throw new BusinessError('Avval shartnoma yarating')
-      await tx.contract.update({ where: { requestId: id }, data: { status: 'signed', signedAt: new Date() } })
-      await tx.customer.update({ where: { id: r.customerId }, data: { debt: { increment: num(r.contract.amount) }, totalPurchases: { increment: num(r.contract.amount) } } })
-      await tx.request.update({ where: { id }, data: { deadline: new Date(Date.now() + r.contract.deadlineDays * 86_400_000) } })
-      await this.move(tx, u, r, 'ADVANCE_PAYMENT', 'contract-signed', r.contract.number)
-    })
+    await this.run(async (tx) => this.signContractTx(tx, u, await this.load(tx, id, ['CONTRACT'])))
     return this.done(u, id)
+  }
+
+  private async signContractTx(tx: Tx, u: AuthUser, r: FullRequest, scan?: ScanData) {
+    if (!r.contract) throw new BusinessError('Avval shartnoma yarating')
+    await tx.contract.update({ where: { requestId: r.id }, data: { status: 'signed', signedAt: new Date(), ...scan } })
+    await tx.customer.update({ where: { id: r.customerId }, data: { debt: { increment: num(r.contract.amount) }, totalPurchases: { increment: num(r.contract.amount) } } })
+    await tx.request.update({ where: { id: r.id }, data: { deadline: new Date(Date.now() + r.contract.deadlineDays * 86_400_000) } })
+    await this.move(tx, u, r, 'ADVANCE_PAYMENT', 'contract-signed', r.contract.number)
+  }
+
+  /**
+   * Uploads the signed scan of a contract or act. A scan means the document is signed: a draft contract in the
+   * CONTRACT stage is signed by it (same as "sign-contract"), an act becomes "signed". Re-uploading replaces the file.
+   */
+  async attachScan(u: AuthUser, kind: 'contract' | 'act', docId: string, file: UploadedScan | undefined) {
+    this.require(u, kind === 'contract' ? 'requests.contract' : 'requests.act')
+    const type = checkScan(file)
+    const doc = kind === 'contract'
+      ? await this.prisma.contract.findUniqueOrThrow({ where: { id: docId } })
+      : await this.prisma.act.findUniqueOrThrow({ where: { id: docId } })
+    const path = await saveScan(kind === 'contract' ? 'contracts' : 'acts', file!, type)
+    const scan: ScanData = { scanFile: path, scanName: cleanName(file!.originalname, type), scanMime: type, scanSize: file!.size, scanUploadedAt: new Date(), scanUploadedById: u.id }
+    let old: string | null = null
+    try {
+      await this.run(async (tx) => {
+        const r = await this.load(tx, doc.requestId, Object.keys(STATUS_OWNER).filter((x) => x !== 'CANCELLED') as RequestStatus[])
+        if (kind === 'contract') {
+          const c = r.contract!
+          old = c.scanFile
+          if (c.status === 'draft') {
+            if (r.status !== 'CONTRACT') throw new BusinessError('Shartnoma imzolanmagan va zayavka shartnoma bosqichida emas')
+            await this.signContractTx(tx, u, r, scan)
+          } else {
+            await tx.contract.update({ where: { id: c.id }, data: scan })
+          }
+          await this.event(tx, u, r.id, 'contract-scan', `${c.number}: ${scan.scanName}`)
+        } else {
+          const a = r.act!
+          old = a.scanFile
+          await tx.act.update({ where: { id: a.id }, data: { ...scan, status: 'signed', signedAt: a.signedAt ?? new Date() } })
+          await this.event(tx, u, r.id, 'act-scan', `${a.number}: ${scan.scanName}`)
+        }
+      })
+    } catch (e) {
+      await removeScan(path)
+      throw e
+    }
+    if (old && old !== path) await removeScan(old)
+    return this.done(u, doc.requestId)
   }
 
   /** Accountant confirms the advance. "Ungacha hech nima ish bajarilmaydi." */

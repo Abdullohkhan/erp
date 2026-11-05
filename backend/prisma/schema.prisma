@@ -351,6 +351,13 @@ model Contract {
   /// draft | signed
   status       String    @default("draft")
   signedAt     DateTime?
+  // Signed scan (PDF/JPG/PNG) stored on disk under UPLOAD_DIR
+  scanFile         String?
+  scanName         String?
+  scanMime         String?
+  scanSize         Int?
+  scanUploadedAt   DateTime?
+  scanUploadedById String?
   createdAt    DateTime  @default(now())
 }
 
@@ -360,6 +367,16 @@ model Act {
   requestId String   @unique
   request   Request  @relation(fields: [requestId], references: [id], onDelete: Cascade)
   body      String
+  /// draft | signed (a signed scan was uploaded)
+  status    String   @default("draft")
+  signedAt  DateTime?
+  // Signed scan (PDF/JPG/PNG) stored on disk under UPLOAD_DIR
+  scanFile         String?
+  scanName         String?
+  scanMime         String?
+  scanSize         Int?
+  scanUploadedAt   DateTime?
+  scanUploadedById String?
   createdAt DateTime @default(now())
 }
 

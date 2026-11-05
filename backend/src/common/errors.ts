@@ -1,4 +1,4 @@
-import { ArgumentsHost, Catch, ExceptionFilter, HttpException, HttpStatus, Logger } from '@nestjs/common'
+import { ArgumentsHost, Catch, ExceptionFilter, HttpException, HttpStatus, Logger, PayloadTooLargeException } from '@nestjs/common'
 import type { Response } from 'express'
 import { Prisma } from '../generated/prisma/client.js'
 
@@ -16,6 +16,12 @@ export class AllExceptionsFilter implements ExceptionFilter {
 
   catch(exception: unknown, host: ArgumentsHost) {
     const res = host.switchToHttp().getResponse<Response>()
+    if (exception instanceof PayloadTooLargeException) {
+      // Multer's size limit ("File too large"): readable message with the configured limit.
+      const mb = Number(process.env.UPLOAD_MAX_MB) > 0 ? Number(process.env.UPLOAD_MAX_MB) : 10
+      res.status(413).json({ statusCode: 413, message: `Fayl hajmi juda katta (maksimal ${mb} MB)` })
+      return
+    }
     if (exception instanceof HttpException) {
       const body = exception.getResponse()
       res.status(exception.getStatus()).json(typeof body === 'string' ? { statusCode: exception.getStatus(), message: body } : body)
