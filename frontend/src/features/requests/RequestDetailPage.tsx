@@ -3,11 +3,13 @@ import {
   Alert, Box, Button, Card, Chip, Dialog, DialogActions, DialogContent, DialogTitle, Grid, LinearProgress,
   Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography, Skeleton,
 } from '@mui/material'
-import { ArrowBack, Block, Description, Send, ErrorOutlined } from '@mui/icons-material'
+import { ArrowBack, Block, Description, Send, ErrorOutlined, ReceiptLong } from '@mui/icons-material'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import AnimatedPage from '@/shared/components/AnimatedPage/AnimatedPage'
 import HtmlDocDialog from '@/shared/components/HtmlDocDialog/HtmlDocDialog'
+import ScanControls from '@/shared/components/ScanControls/ScanControls'
+import DeliveryCard from '@/features/deliveries/DeliveryCard'
 import { useCan } from '@/app/hooks'
 import { useFetch } from '@/shared/hooks/useFetch'
 import { useAction } from '@/shared/hooks/useAction'
@@ -25,6 +27,8 @@ const ACTION_LABELS: Record<string, string> = {
   'procurement-approved': "Ta'minot tasdiqlandi", 'procurement-rejected': "Ta'minot qaytarildi", received: 'Omborga qabul qilindi',
   issue: 'Ombordan olindi', return: 'Omborga qaytarildi', assembled: "Yig'ish tugadi", 'act-created': 'Dalolatnoma yaratildi',
   delivered: 'Yetkazib berildi', cancel: 'Bekor qilindi', comment: 'Izoh',
+  'contract-scan': 'Imzolangan shartnoma skani yuklandi', 'act-scan': 'Imzolangan akt skani yuklandi',
+  'delivery-planned': 'Yetkazish rejalashtirildi', 'delivery-status': 'Yetkazish holati',
 }
 
 export default function RequestDetailPage() {
@@ -34,13 +38,22 @@ export default function RequestDetailPage() {
   const { data: req, setData, loading, error } = useFetch<CrmRequest>(`/requests/${id}`)
   const { busy, run } = useAction()
   const canCancel = useCan('requests.cancel')
-  const [doc, setDoc] = useState<{ title: string; html: string } | null>(null)
+  const canContract = useCan('requests.contract')
+  const canAct = useCan('requests.act')
+  const canDeliver = useCan('requests.deliver')
+  const [doc, setDoc] = useState<{ title: string; html: string; pdf?: { url: string; fileName: string } } | null>(null)
   const [comment, setComment] = useState('')
   const [cancelOpen, setCancelOpen] = useState(false)
   const [cancelReason, setCancelReason] = useState('')
 
   const act = (action: string, body: object = {}, ok?: string) =>
     run(async () => {
+      if (action === '__delivery') {
+        await api.post(`/requests/${id}/deliveries`, body)
+        const { data } = await api.get<CrmRequest>(`/requests/${id}`)
+        setData(data)
+        return
+      }
       if (action === '__payment') {
         const b = body as { amount: number; type: string }
         await api.post('/payments', { direction: 'income', type: b.type, amount: b.amount, category: 'Avans', requestId: id })
@@ -60,6 +73,8 @@ export default function RequestDetailPage() {
   const showPrices = req.totalPrice !== undefined
   const showCost = req.totalCost !== undefined
   // "Olingan" only matters from assembly on.
+  // Goods held in the warehouse for this request (until taken for assembly).
+  const showReserved = req.items.some((i) => (i.reservedQty ?? 0) > 0)
   const showIssued = PIPELINE.indexOf(req.status) >= PIPELINE.indexOf('ASSEMBLY') || req.items.some((i) => i.issuedQty > 0)
 
   return (
@@ -67,8 +82,18 @@ export default function RequestDetailPage() {
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2, flexWrap: 'wrap' }}>
         <Button startIcon={<ArrowBack />} variant="outlined" color="inherit" size="small" onClick={() => navigate('/requests')}>{t('Zayavkalar')}</Button>
         <Box sx={{ flex: 1 }} />
-        {req.contract?.body && <Button size="small" startIcon={<Description />} onClick={() => setDoc({ title: `${t('Shartnoma')} ${req.contract!.number}`, html: req.contract!.body! })}>{t('Shartnoma')}</Button>}
-        {req.act?.body && <Button size="small" startIcon={<Description />} onClick={() => setDoc({ title: `${t('Dalolatnoma')} ${req.act!.number}`, html: req.act!.body! })}>{t('Dalolatnoma')}</Button>}
+        {req.contract?.body && <Button size="small" startIcon={<Description />} onClick={() => setDoc({
+          title: `${t('Shartnoma')} ${req.contract!.number}`, html: req.contract!.body!,
+          pdf: { url: `/contracts/${req.contract!.id}/pdf`, fileName: `Shartnoma-${req.contract!.number}.pdf` },
+        })}>{t('Shartnoma')}</Button>}
+        {req.contract?.body && <Button size="small" startIcon={<ReceiptLong />} disabled={busy} onClick={() => run(async () => {
+          const { data } = await api.get<{ number: string; html: string }>(`/requests/${id}/invoice`)
+          setDoc({ title: `${t("To'lov uchun hisob")} ${data.number}`, html: data.html, pdf: { url: `/requests/${id}/invoice/pdf`, fileName: `Hisob-${data.number}.pdf` } })
+        }, 'Hisob tayyor')}>{t('Hisob')}</Button>}
+        {req.act?.body && <Button size="small" startIcon={<Description />} onClick={() => setDoc({
+          title: `${t('Dalolatnoma')} ${req.act!.number}`, html: req.act!.body!,
+          pdf: { url: `/acts/${req.act!.id}/pdf`, fileName: `Dalolatnoma-${req.act!.number}.pdf` },
+        })}>{t('Dalolatnoma')}</Button>}
         {canCancel && !final && <Button size="small" color="error" startIcon={<Block />} onClick={() => setCancelOpen(true)}>{t('Bekor qilish')}</Button>}
       </Box>
 
@@ -90,6 +115,7 @@ export default function RequestDetailPage() {
               { label: 'Qoldiq', value: formatCurrency(req.balance ?? 0) },
             ] : []),
             ...(showCost ? [{ label: 'Tannarx', value: formatCurrency(req.totalCost ?? 0) }] : []),
+            ...(showCost && req.deliveryCost ? [{ label: 'Logistika', value: formatCurrency(req.deliveryCost) }] : []),
           ].map((x) => (
             <Grid key={x.label} size={{ xs: 6, md: 'auto' }}>
               <Typography variant="caption" color="text.secondary">{t(x.label)}</Typography>
@@ -111,6 +137,37 @@ export default function RequestDetailPage() {
 
       {!final && <Box sx={{ mb: 2 }}><StagePanel key={req.status + req.updatedAt} req={req} act={act} busy={busy} /></Box>}
 
+      {(req.contract?.body || req.act?.body) && (
+        <Card sx={{ borderRadius: 3, mb: 2, p: 2 }}>
+          <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 1 }}>{t('Imzolangan hujjatlar')}</Typography>
+          {req.contract?.body && (
+            <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap', mb: 1 }}>
+              <Typography variant="body2" sx={{ minWidth: 180 }}>{t('Shartnoma')} {req.contract.number}</Typography>
+              <ScanControls<CrmRequest> kind="contracts" doc={req.contract} onUploaded={setData}
+                canUpload={canContract && req.status !== 'CANCELLED' && (req.contract.status === 'signed' || req.status === 'CONTRACT')} />
+            </Box>
+          )}
+          {req.act?.body && (
+            <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
+              <Typography variant="body2" sx={{ minWidth: 180 }}>{t('Dalolatnoma')} {req.act.number}</Typography>
+              <ScanControls<CrmRequest> kind="acts" doc={req.act} onUploaded={setData} canUpload={canAct && req.status !== 'CANCELLED'} />
+            </Box>
+          )}
+        </Card>
+      )}
+
+      {!!req.deliveries?.length && (
+        <Card sx={{ borderRadius: 3, mb: 2, p: 2 }}>
+          <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 1 }}>{t('Yetkazishlar')}</Typography>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+            {req.deliveries.map((d) => (
+              <DeliveryCard key={d.id} d={d} canAct={canDeliver && req.status === 'DELIVERY'}
+                onChanged={async () => setData((await api.get<CrmRequest>(`/requests/${id}`)).data)} />
+            ))}
+          </Box>
+        </Card>
+      )}
+
       <Card sx={{ borderRadius: 3, mb: 2 }}>
         <Typography variant="subtitle1" sx={{ fontWeight: 700, p: 2, pb: 0 }}>{t('Konfiguratsiya')}</Typography>
         {req.items.length === 0 ? (
@@ -120,7 +177,8 @@ export default function RequestDetailPage() {
             <Table size="small" sx={{ minWidth: 560 }}>
               <TableHead><TableRow>
                 <TableCell>#</TableCell><TableCell>{t('Mahsulot')}</TableCell><TableCell align="right">{t('Soni')}</TableCell>
-                <TableCell>{t('Manba')}</TableCell>{showIssued && <TableCell align="right">{t('Olingan')}</TableCell>}
+                <TableCell>{t('Manba')}</TableCell>{showReserved && <TableCell align="right">{t('Band')}</TableCell>}
+                {showIssued && <TableCell align="right">{t('Olingan')}</TableCell>}
                 {showCost && <TableCell align="right">{t('Tannarx (dona)')}</TableCell>}
                 {showPrices && <TableCell align="right">{t('Narx (dona)')}</TableCell>}
               </TableRow></TableHead>
@@ -136,6 +194,7 @@ export default function RequestDetailPage() {
                     </TableCell>
                     <TableCell align="right">{formatNumber(i.qty)} {i.unit}</TableCell>
                     <TableCell><Chip size="small" variant="outlined" color={i.source === 'stock' ? 'success' : 'warning'} label={i.source === 'stock' ? t('Ombordan') : t('Xarid')} /></TableCell>
+                    {showReserved && <TableCell align="right">{formatNumber(i.reservedQty ?? 0)}</TableCell>}
                     {showIssued && <TableCell align="right">{formatNumber(i.issuedQty)}</TableCell>}
                     {showCost && <TableCell align="right">{i.unitCost ? formatCurrency(i.unitCost) : '—'}</TableCell>}
                     {showPrices && <TableCell align="right">{i.salePrice ? formatCurrency(i.salePrice) : '—'}</TableCell>}
@@ -165,7 +224,7 @@ export default function RequestDetailPage() {
         </Box>
       </Card>
 
-      {doc && <HtmlDocDialog open title={doc.title} html={doc.html} onClose={() => setDoc(null)} />}
+      {doc && <HtmlDocDialog open title={doc.title} html={doc.html} pdf={doc.pdf} onClose={() => setDoc(null)} />}
       <Dialog open={cancelOpen} onClose={() => setCancelOpen(false)} maxWidth="xs" fullWidth>
         <DialogTitle sx={{ fontWeight: 700 }}>{t('Zayavkani bekor qilish')}</DialogTitle>
         <DialogContent>

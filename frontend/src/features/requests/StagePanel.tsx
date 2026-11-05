@@ -15,6 +15,7 @@ import api from '@/lib/axios'
 import { notify } from '@/app/uiSlice'
 import { STATUS_INFO, unitCost, type CrmRequest, type RequestItem } from './types'
 import type { Permission } from '@/app/permissions'
+import DeliveryForm from '@/features/deliveries/DeliveryForm'
 
 export type Act = (action: string, body?: object, ok?: string) => Promise<boolean>
 
@@ -445,6 +446,23 @@ function AssemblyStage({ req, act, busy }: Props) {
   )
 }
 
+// ───────────── Delivery ─────────────
+
+/** Plan a delivery (driver, vehicle, waybill); the request is completed when it is marked delivered. */
+function DeliveryStage(props: Props) {
+  const { t } = useTranslation()
+  const open = (props.req.deliveries ?? []).some((d) => d.status === 'PLANNED' || d.status === 'IN_TRANSIT')
+  if (open) {
+    return <Typography variant="body2" color="text.secondary">{t("Yetkazish rejalashtirilgan: holatini quyidagi \"Yetkazishlar\" bo'limida yoki haydovchi o'zi belgilaydi. \"Yetkazildi\" zayavkani yakunlaydi.")}</Typography>
+  }
+  return (
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+      <DeliveryForm req={props.req} busy={props.busy} onSubmit={(body) => props.act('__delivery', body, 'Yetkazish rejalashtirildi')} />
+      <OneButton {...props} action="deliver" label="Yetkazishsiz yakunlash (topshirildi)" ok="Zayavka yakunlandi" icon={<LocalShipping />} commentLabel="Kim qabul qildi (F.I.Sh., manzil)" />
+    </Box>
+  )
+}
+
 // ───────────── Simple one-button stages ─────────────
 
 function OneButton({ act, busy, action, label, ok, icon, hint, commentLabel }: Props & { action: string; label: string; ok: string; icon: React.ReactNode; hint?: string; commentLabel?: string }) {
@@ -488,7 +506,7 @@ export default function StagePanel(props: Props) {
       case 'RECEIVING': return <OneButton {...props} action="receive" label="Omborga qabul qilish" ok="Omborga qabul qilindi" icon={<Inventory2 />} hint="Tovar kelganda omborga kirim qiling: qoldiq, yetkazuvchi qarzi va faktura avtomatik yoziladi." />
       case 'ASSEMBLY': return <AssemblyStage {...props} />
       case 'ACT': return <OneButton {...props} action="act" label="Dalolatnoma yaratish" ok="Dalolatnoma yaratildi" icon={<Description />} />
-      case 'DELIVERY': return <OneButton {...props} action="deliver" label="Yetkazib berildi" ok="Zayavka yakunlandi" icon={<LocalShipping />} commentLabel="Kim qabul qildi (F.I.Sh., manzil)" />
+      case 'DELIVERY': return <DeliveryStage {...props} />
       default: return null
     }
   })()

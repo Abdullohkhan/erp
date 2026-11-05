@@ -2,7 +2,7 @@ import type { AuthUser } from '@/features/auth/authSlice'
 
 /** Permission keys — mirror of backend/src/auth/permissions.ts. The server is the source of truth. */
 export type Permission =
-  'users.view' | 'users.manage' | 'roles.view' | 'roles.manage' | 'settings.manage' | 'audit.view' | 'costs.view' | 'reports.view' | 'products.view' | 'products.manage' | 'customers.view' | 'customers.manage' | 'suppliers.view' | 'suppliers.manage' | 'employees.view' | 'employees.manage' | 'warehouses.view' | 'warehouses.manage' | 'stock.view' | 'stock.move' | 'stock.receive' | 'sales.view' | 'sales.create' | 'sales.confirm' | 'sales.cancel' | 'purchases.view' | 'purchases.create' | 'purchases.confirm' | 'purchases.cancel' | 'invoices.view' | 'invoices.create' | 'payments.view' | 'payments.create' | 'requests.view' | 'requests.create' | 'requests.configure' | 'requests.price' | 'requests.review' | 'requests.sell' | 'requests.contract' | 'requests.advance' | 'requests.procure' | 'requests.approve_procurement' | 'requests.receive' | 'requests.assemble' | 'requests.act' | 'requests.deliver' | 'requests.cancel' | 'templates.manage'
+  'users.view' | 'users.manage' | 'roles.view' | 'roles.manage' | 'settings.manage' | 'audit.view' | 'costs.view' | 'reports.view' | 'products.view' | 'products.manage' | 'customers.view' | 'customers.manage' | 'suppliers.view' | 'suppliers.manage' | 'employees.view' | 'employees.manage' | 'warehouses.view' | 'warehouses.manage' | 'stock.view' | 'stock.move' | 'stock.receive' | 'sales.view' | 'sales.create' | 'sales.confirm' | 'sales.cancel' | 'purchases.view' | 'purchases.create' | 'purchases.confirm' | 'purchases.cancel' | 'invoices.view' | 'invoices.create' | 'payments.view' | 'payments.create' | 'requests.view' | 'requests.create' | 'requests.configure' | 'requests.price' | 'requests.review' | 'requests.sell' | 'requests.contract' | 'requests.advance' | 'requests.procure' | 'requests.approve_procurement' | 'requests.receive' | 'requests.assemble' | 'requests.act' | 'requests.deliver' | 'requests.cancel' | 'templates.manage' | 'deliveries.view' | 'deliveries.drive'
 
 /** Which permission (any of) opens which page. */
 export const ROUTE_PERMS: Record<string, Permission[]> = {
@@ -11,6 +11,7 @@ export const ROUTE_PERMS: Record<string, Permission[]> = {
   '/requests/:id': ['requests.view'],
   '/documents/contracts': ['requests.contract', 'requests.advance', 'payments.view'],
   '/documents/acts': ['requests.act', 'requests.contract', 'payments.view'],
+  '/deliveries': ['deliveries.view', 'deliveries.drive', 'requests.deliver'],
   '/catalogs/products': ['products.view', 'products.manage'],
   '/catalogs/customers': ['customers.view', 'customers.manage'],
   '/catalogs/customers/:id': ['customers.view', 'customers.manage'],

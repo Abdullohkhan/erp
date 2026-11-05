@@ -30,6 +30,7 @@ const Requests = page(() => import('@/features/requests/RequestsPage'))
 const RequestDetail = page(() => import('@/features/requests/RequestDetailPage'))
 const Contracts = page(() => import('@/features/documents/ContractsPage'))
 const Acts = page(() => import('@/features/documents/ActsPage'))
+const Deliveries = page(() => import('@/features/deliveries/DeliveriesPage'))
 const Notifications = page(() => import('@/features/notifications/NotificationsPage'))
 const Users = page(() => import('@/features/admin/UsersPage'))
 const Roles = page(() => import('@/features/admin/RolesPage'))
@@ -58,6 +59,7 @@ export const router = createBrowserRouter([
       guard('/requests/:id', RequestDetail),
       guard('/documents/contracts', Contracts),
       guard('/documents/acts', Acts),
+      guard('/deliveries', Deliveries),
       guard('/notifications', Notifications),
       guard('/admin/users', Users),
       guard('/admin/roles', Roles),

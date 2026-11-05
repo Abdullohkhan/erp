@@ -33,6 +33,7 @@ const NAV_ITEMS: NavItem[] = [
       { label: 'Zayavkalar',     icon: <Assignment />,  path: '/requests' },
       { label: 'Shartnomalar',   icon: <Gavel />,       path: '/documents/contracts' },
       { label: 'Dalolatnomalar', icon: <Description />, path: '/documents/acts' },
+      { label: 'Yetkazishlar',   icon: <LocalShipping />, path: '/deliveries' },
     ],
   },
   {

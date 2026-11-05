@@ -95,7 +95,7 @@ export class DocumentsController {
   acts() {
     return this.prisma.act.findMany({
       orderBy: { createdAt: 'desc' },
-      include: { request: { select: { id: true, number: true, customer: { select: { name: true } } } } },
+      include: { request: { select: { id: true, number: true, status: true, customer: { select: { name: true } } } } },
     })
   }
 

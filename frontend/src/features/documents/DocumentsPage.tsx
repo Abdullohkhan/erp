@@ -8,20 +8,24 @@ import PageHeader from '@/shared/components/PageHeader/PageHeader'
 import DataTable from '@/shared/components/DataTable/DataTable'
 import StatusChip from '@/shared/components/StatusChip/StatusChip'
 import HtmlDocDialog from '@/shared/components/HtmlDocDialog/HtmlDocDialog'
+import ScanControls from '@/shared/components/ScanControls/ScanControls'
+import { useCan } from '@/app/hooks'
 import { useFetch } from '@/shared/hooks/useFetch'
 import { formatCurrency, formatDate } from '@/shared/utils/formatters'
 import type { TableColumn } from '@/shared/types/common.types'
 
 interface Doc {
   id: string; number: string; body: string; createdAt: string; status?: string; amount?: number; advancePct?: number
-  request: { id: string; number: string; paid?: number; customer: { name: string } }
+  scanName?: string | null
+  request: { id: string; number: string; status?: string; paid?: number; customer: { name: string } }
 }
 
 /** Contracts or acts list; `kind` picks the endpoint. */
 export default function DocumentsPage({ kind }: { kind: 'contracts' | 'acts' }) {
   const { t } = useTranslation()
   const navigate = useNavigate()
-  const { data, loading } = useFetch<Doc[]>(`/${kind}`)
+  const { data, loading, reload } = useFetch<Doc[]>(`/${kind}`)
+  const canUpload = useCan(kind === 'contracts' ? 'requests.contract' : 'requests.act')
   const [open, setOpen] = useState<Doc | null>(null)
   const title = kind === 'contracts' ? 'Shartnomalar' : 'Dalolatnomalar'
 
@@ -33,9 +37,18 @@ export default function DocumentsPage({ kind }: { kind: 'contracts' | 'acts' }) 
     ...(kind === 'contracts' ? [
       { id: 'amount', label: 'Summa', minWidth: 130, align: 'right' as const, format: (v: unknown) => formatCurrency(v as number) },
       { id: 'paid', label: "To'langan", minWidth: 130, align: 'right' as const, format: (_v: unknown, r: Doc) => formatCurrency(r.request.paid ?? 0), exportValue: (r: Doc) => r.request.paid ?? 0 },
-      { id: 'status', label: 'Holat', minWidth: 110, format: (v: unknown) => <StatusChip status={v === 'signed' ? 'confirmed' : 'draft'} /> },
     ] : []),
-  ], [kind])
+    { id: 'status', label: 'Holat', minWidth: 110, format: (v: unknown) => <StatusChip status={v === 'signed' ? 'confirmed' : 'draft'} /> },
+    {
+      id: 'scanName', label: 'Imzolangan skan', minWidth: 220, exportValue: (r: Doc) => r.scanName ?? '',
+      format: (_v: unknown, r: Doc) => (
+        <span onClick={(e) => e.stopPropagation()}>
+          <ScanControls kind={kind} doc={r} onUploaded={reload}
+            canUpload={canUpload && r.request.status !== 'CANCELLED' && (kind === 'acts' || r.status === 'signed' || r.request.status === 'CONTRACT')} />
+        </span>
+      ),
+    },
+  ], [kind, canUpload, reload])
 
   return (
     <AnimatedPage>
@@ -47,7 +60,8 @@ export default function DocumentsPage({ kind }: { kind: 'contracts' | 'acts' }) 
             <Tooltip title={t('Zayavka')}><IconButton size="small" onClick={() => navigate(`/requests/${r.request.id}`)}><OpenInNew fontSize="small" /></IconButton></Tooltip>
           </>
         )} />
-      {open && <HtmlDocDialog open title={`${t(title)} ${open.number}`} html={open.body} onClose={() => setOpen(null)} />}
+      {open && <HtmlDocDialog open title={`${t(title)} ${open.number}`} html={open.body} onClose={() => setOpen(null)}
+        pdf={{ url: `/${kind}/${open.id}/pdf`, fileName: `${kind === 'contracts' ? 'Shartnoma' : 'Dalolatnoma'}-${open.number}.pdf` }} />}
     </AnimatedPage>
   )
 }

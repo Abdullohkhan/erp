@@ -1,7 +1,9 @@
 import { Button, Dialog, DialogActions, DialogContent, DialogTitle } from '@mui/material'
-import { Print } from '@mui/icons-material'
+import { Print, PictureAsPdf } from '@mui/icons-material'
 import { useRef } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useAction } from '@/shared/hooks/useAction'
+import { downloadFile } from '@/lib/download'
 
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!))
 
@@ -13,10 +15,16 @@ h2,h4{page-break-after:avoid}table{font-size:13px;border-collapse:collapse}th{ba
 thead{display:table-header-group}tr,img{page-break-inside:avoid}td:nth-child(n+3),th:nth-child(n+3){white-space:nowrap}
 @media print{body{margin:0}th{-webkit-print-color-adjust:exact;print-color-adjust:exact}}</style></head><body>${body}</body></html>`
 
-/** Shows a server-rendered HTML document (contract, act) in a sandboxed frame and prints it / saves as PDF. */
-export default function HtmlDocDialog({ open, title, html, onClose }: { open: boolean; title: string; html: string; onClose: () => void }) {
+/**
+ * Shows a server-rendered HTML document (contract, act, invoice, waybill) in a sandboxed frame; prints it,
+ * and with `pdf` downloads the server-generated PDF.
+ */
+export default function HtmlDocDialog({ open, title, html, onClose, pdf }: {
+  open: boolean; title: string; html: string; onClose: () => void; pdf?: { url: string; fileName: string }
+}) {
   const { t } = useTranslation()
   const ref = useRef<HTMLIFrameElement>(null)
+  const { busy, run } = useAction()
   return (
     <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
       <DialogTitle sx={{ fontWeight: 700 }}>{title}</DialogTitle>
@@ -26,7 +34,9 @@ export default function HtmlDocDialog({ open, title, html, onClose }: { open: bo
       </DialogContent>
       <DialogActions sx={{ p: 2, gap: 1 }}>
         <Button onClick={onClose} variant="outlined" color="inherit">{t('Yopish')}</Button>
-        <Button variant="contained" startIcon={<Print />} onClick={() => ref.current?.contentWindow?.print()}>{t('Chop etish / PDF')}</Button>
+        {pdf && <Button variant="outlined" startIcon={<PictureAsPdf />} disabled={busy}
+          onClick={() => run(() => downloadFile(pdf.url, pdf.fileName), 'PDF yuklab olindi')}>{t('PDF yuklab olish')}</Button>}
+        <Button variant="contained" startIcon={<Print />} onClick={() => ref.current?.contentWindow?.print()}>{t('Chop etish')}</Button>
       </DialogActions>
     </Dialog>
   )

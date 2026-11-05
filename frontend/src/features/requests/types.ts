@@ -56,7 +56,42 @@ export interface RequestItem {
   otherCosts?: number
   receivedQty: number
   issuedQty: number
+  /** Held in the warehouse for this line until it is taken for assembly */
+  reservedQty: number
 }
+
+export type DeliveryStatus = 'PLANNED' | 'IN_TRANSIT' | 'DELIVERED' | 'RETURNED'
+
+export const DELIVERY_STATUS: Record<DeliveryStatus, { label: string; color: 'default' | 'info' | 'success' | 'warning' }> = {
+  PLANNED: { label: 'Rejada', color: 'default' },
+  IN_TRANSIT: { label: "Yo'lda", color: 'info' },
+  DELIVERED: { label: 'Yetkazildi', color: 'success' },
+  RETURNED: { label: 'Qaytdi', color: 'warning' },
+}
+
+export interface Delivery {
+  id: string
+  number: string
+  requestId: string
+  driverId: string | null
+  driverName: string
+  driverPhone: string | null
+  vehicleNumber: string | null
+  address: string
+  plannedAt: string | null
+  departedAt: string | null
+  deliveredAt: string | null
+  status: DeliveryStatus
+  /** Only for users with costs.view */
+  cost?: number
+  receivedBy: string | null
+  notes: string | null
+  createdAt: string
+  request?: { id: string; number: string; title: string; status: RequestStatus; customer: { name: string; phone: string } }
+  items?: { name: string; qty: number; unit: string }[]
+}
+
+export interface ScanInfo { scanName?: string | null; scanMime?: string | null; scanSize?: number | null; scanUploadedAt?: string | null }
 
 export interface RequestEvent {
   id: string
@@ -86,8 +121,10 @@ export interface CrmRequest {
   assigneeId: string | null
   items: RequestItem[]
   events: RequestEvent[]
-  contract: { id: string; number: string; status: string; body?: string; amount?: number; advancePct?: number; deadlineDays?: number; signedAt?: string | null } | null
-  act: { id: string; number: string; body?: string } | null
+  contract: ({ id: string; number: string; status: string; body?: string; amount?: number; advancePct?: number; deadlineDays?: number; signedAt?: string | null } & ScanInfo) | null
+  act: ({ id: string; number: string; status?: string; body?: string; signedAt?: string | null } & ScanInfo) | null
+  deliveries?: Delivery[]
+  deliveryCost?: number
   totalCost?: number
   totalPrice?: number
   advanceAmount?: number
